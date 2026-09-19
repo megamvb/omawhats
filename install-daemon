@@ -6,8 +6,12 @@
 #
 #   ~/.config/omarchy/plugins/megamvb.omawhats/install-daemon
 #
-# Safe to run again after `omarchy plugin update`: the running daemon keeps the
-# old binary until it is turned off and on again.
+# Go comes from the system (pacman) or, if it is not there, from mise, which
+# Omarchy already ships. Safe to run again after `omarchy plugin update`: the
+# running daemon keeps the old binary until it is turned off and on again.
+#
+#   -y, --yes   answer the questions with yes (for scripts)
+#   --mise      build with mise's Go even if the system has its own
 
 set -euo pipefail
 
@@ -15,6 +19,9 @@ BIN=omawhatsd
 BIN_DIR="${OMAWHATS_BIN_DIR:-$HOME/.local/bin}"
 SRC_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/daemon" && pwd)"
 GO_MIN=1.27
+GO_WANT=latest # what mise is asked for
+ASSUME_YES=0
+FORCE_MISE=0
 
 fail() {
   echo "install-daemon: $*" >&2
@@ -23,23 +30,83 @@ fail() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# ---- Go
+interactive() { [[ -t 0 && -t 1 ]]; }
 
-have go || fail "Go is not installed. On Omarchy: sudo pacman -S --needed go"
+confirm() {
+  ((ASSUME_YES)) && return 0
+  interactive || return 1
+  local answer
+  read -r -p "$1 [y/N] " answer
+  [[ ${answer,,} == y || ${answer,,} == yes ]]
+}
 
-go_version=$(go env GOVERSION 2>/dev/null || true)
-go_version=${go_version#go}
-go_version=${go_version%%-*}
-if [[ -n $go_version ]] &&
-  [[ $(printf '%s\n%s\n' "$GO_MIN" "$go_version" | sort -V | head -1) != "$GO_MIN" ]]; then
-  fail "Go $go_version is too old; $GO_MIN or newer is needed (sudo pacman -S go)"
+while (($# > 0)); do
+  case "$1" in
+  -y | --yes)
+    ASSUME_YES=1
+    shift
+    ;;
+  --mise)
+    FORCE_MISE=1
+    shift
+    ;;
+  -h | --help)
+    sed -n '3,14p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
+    exit 0
+    ;;
+  *) fail "unknown option: $1" ;;
+  esac
+done
+
+# ---- Go: the system's, or mise's
+
+# Prints the bare version of the go reached by the given command, or nothing.
+go_version() { "$@" env GOVERSION 2>/dev/null | sed 's/^go//; s/-.*//'; }
+
+new_enough() {
+  [[ -n ${1:-} ]] || return 1
+  [[ $(printf '%s\n%s\n' "$GO_MIN" "$1" | sort -V | head -1) == "$GO_MIN" ]]
+}
+
+GO=()
+system_version=""
+if ((!FORCE_MISE)) && have go; then
+  system_version=$(go_version go)
+  new_enough "$system_version" && GO=(go)
+fi
+
+if ((${#GO[@]} == 0)); then
+  if ((FORCE_MISE)); then
+    reason="asked for with --mise"
+  elif [[ -n $system_version ]]; then
+    reason="Go $system_version is here but $GO_MIN or newer is needed"
+  else
+    reason="Go is not installed"
+  fi
+
+  have mise || fail "$reason.
+  Install it with either of:
+    sudo pacman -S --needed go
+    mise use -g go@$GO_WANT      # mise ships with Omarchy"
+
+  echo "$reason; mise can supply Go $GO_WANT just for this build."
+  confirm "Use mise's Go? (it downloads a toolchain into ~/.local/share/mise)" || fail "nothing built.
+  Install Go with either of:
+    sudo pacman -S --needed go
+    mise use -g go@$GO_WANT"
+
+  GO=(mise exec "go@$GO_WANT" -- go)
+  mise_version=$(go_version "${GO[@]}")
+  new_enough "$mise_version" ||
+    fail "mise gave Go ${mise_version:-none}, which is not $GO_MIN or newer"
+  echo "Using mise's Go $mise_version. To keep it for good: mise use -g go@$GO_WANT"
 fi
 
 # ---- build
 
 echo "Building $BIN (this downloads the Go modules the first time)…"
 cd "$SRC_DIR"
-go build -trimpath -o "$BIN" .
+"${GO[@]}" build -trimpath -o "$BIN" .
 install -Dm755 "$BIN" "$BIN_DIR/$BIN"
 echo "Installed $BIN_DIR/$BIN"
 
@@ -51,7 +118,7 @@ note() { missing+=("$1"); }
 have ffmpeg || note "ffmpeg — animated GIFs arrive as a still frame (pacman -S ffmpeg)"
 have wl-paste || note "wl-clipboard — Ctrl+V cannot attach a screenshot, and copying a message does nothing (pacman -S wl-clipboard)"
 have notify-send || note "libnotify — no notifications for new messages (pacman -S libnotify)"
-have mpv || note "mpv — videos open in whatever xdg-open picks, if anything (pacman -S mpv)"
+have mpv || note "mpv — videos open in whatever xdg-open picks (pacman -S mpv)"
 if have pacman && ! pacman -Qq qt6-multimedia-ffmpeg >/dev/null 2>&1; then
   note "qt6-multimedia-ffmpeg — voice messages will not play in the client (pacman -S qt6-multimedia-ffmpeg)"
 fi

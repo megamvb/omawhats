@@ -293,14 +293,22 @@ Item {
   function maybeLoadOlder() {
     if (historyPhase !== "idle" || messages.count === 0 || currentChat === "" || dialog !== "") return
     var nearTop = messageList.contentY - messageList.originY < messageList.height * 0.5
-    if (nearTop || messageList.contentHeight <= messageList.height) loadOlder(false)
+    var fits = messageList.contentHeight <= messageList.height
+    if (!nearTop && !fits) return
+    // In a conversation barely taller than the view, "near the top" and "at the
+    // newest message" are the same place: dropping the follow there left a
+    // just-opened chat a little short of its last message (and pictures still
+    // loading make the content look shorter than it turns out to be). The page
+    // arrives above the reader either way, so only a reader who has scrolled
+    // away from the end stops following it.
+    loadOlder(false, fits || messageList.atYEnd)
   }
 
-  function loadOlder(noAsk) {
+  function loadOlder(noAsk, keepFollow) {
     if (messages.count === 0) return
     var oldest = messages.get(0)
     historyPhase = "local"
-    messageList.follow = false
+    if (keepFollow !== true) messageList.follow = false
     wa.requestHistory(currentChat, oldest.ts, oldest.mid, noAsk === true)
   }
 

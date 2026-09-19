@@ -8,6 +8,11 @@ OmaWhats is a basic WhatsApp client in the Omarchy shell, built on
 - **`megamvb.omawhats` plugin** (QML): bar icon with the unread count, a panel
   with the power switch, pairing QR and recent chats, and a full-screen client.
 
+![The client: the chat list on the left, a conversation with a photo, a reply,
+a voice message and a link on the right](preview.png)
+
+*(made-up conversation — the theme is whatever Omarchy theme you are using)*
+
 > **whatsmeow is an unofficial client, and WhatsApp may suspend accounts that
 > use one.** For light personal use the risk is low, but it is yours to take.
 > Read [Warning](#warning) before you link your account.
@@ -22,8 +27,10 @@ omarchy plugin add https://github.com/megamvb/omawhats.git --enable
 The first command clones this repository into
 `~/.config/omarchy/plugins/megamvb.omawhats/` and puts the widget on the bar.
 The second builds `omawhatsd` into `~/.local/bin` — the plugin flow compiles
-nothing, so this step is not optional. It needs **Go 1.27+**
-(`sudo pacman -S go`); the script names anything else it misses.
+nothing, so this step is not optional. It needs **Go 1.27+**: the system's
+(`sudo pacman -S go`), or, if you would rather not install one, it offers to
+borrow one through **mise**, which Omarchy already ships (`--mise` forces that,
+`mise use -g go@latest` keeps it). Anything else missing is named, not demanded.
 
 Then middle-click the icon to turn OmaWhats on and scan the QR under
 *WhatsApp → Settings → Linked devices → Link a device*.
@@ -40,8 +47,8 @@ and turn the daemon off and on once, so the new binary is the one running.
 ### Requirements
 
 Omarchy (the shell plugin API, `omarchy-file-select` and
-`omarchy-launch-browser`) and Go to build. Everything else is optional and only
-costs you the feature next to it:
+`omarchy-launch-browser`) and, to build, Go 1.27+ from pacman or from mise.
+Everything else is optional and only costs you the feature next to it:
 
 | Package | Without it |
 |---|---|
