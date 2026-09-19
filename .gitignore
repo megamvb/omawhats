@@ -1,0 +1,3 @@
+# The compiled daemon (28 MB): built by install-daemon or `make build`.
+daemon/omawhatsd
+daemon/omawhats

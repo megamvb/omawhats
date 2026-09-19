@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "id": "megamvb.omawhats",
+  "name": "OmaWhats",
+  "version": "0.6.0",
+  "author": "megamvb",
+  "license": "MIT",
+  "homepage": "https://github.com/megamvb/omawhats",
+  "description": "OmaWhats, a basic WhatsApp client for the Omarchy shell, built on whatsmeow. Text, replies, reactions, photos and files (sent and received). The daemon (omawhatsd) only runs while you switch it on; switched off, stored conversations stay readable.",
+  "kinds": [
+    "bar-widget",
+    "overlay"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml",
+    "overlay": "Chat.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaWhats",
+    "description": "WhatsApp glyph with the unread count. Click for the power switch, pairing QR, latest chats and a button to open the client in a normal window; right-click opens the full-screen client; middle-click turns the daemon on or off.",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "panelChats": 8,
+      "showUnreadCount": true,
+      "notifications": true,
+      "readReceipts": true,
+      "binary": "",
+      "autoDownloadMedia": true
+    },
+    "schema": [
+      {
+        "key": "panelChats",
+        "type": "integer",
+        "label": "Chats in the panel",
+        "min": 3,
+        "max": 20,
+        "step": 1,
+        "defaultValue": 8,
+        "description": "How many recent chats the bar panel lists."
+      },
+      {
+        "key": "showUnreadCount",
+        "type": "boolean",
+        "label": "Show the unread count in the bar",
+        "defaultValue": true,
+        "description": "Turn off to show the icon only."
+      },
+      {
+        "key": "notifications",
+        "type": "boolean",
+        "label": "Notify new messages",
+        "defaultValue": true,
+        "description": "Applies from the next time OmaWhats is turned on."
+      },
+      {
+        "key": "autoDownloadMedia",
+        "type": "boolean",
+        "label": "Download photos, stickers and GIFs automatically",
+        "defaultValue": true,
+        "description": "When a chat is opened with OmaWhats on. Videos, audio and documents download only when clicked."
+      },
+      {
+        "key": "readReceipts",
+        "type": "boolean",
+        "label": "Send read receipts",
+        "defaultValue": true,
+        "description": "Blue ticks when a chat is opened. Applies from the next time OmaWhats is turned on."
+      },
+      {
+        "key": "binary",
+        "type": "path",
+        "label": "Daemon path",
+        "defaultValue": "",
+        "description": "Empty uses ~/.local/bin/omawhatsd."
+      }
+    ]
+  }
+}

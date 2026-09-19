@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Builds omawhatsd and puts it in ~/.local/bin. The Omarchy plugin itself needs
+# no installing — `omarchy plugin add` clones this folder into place — but the
+# daemon is a Go program, and nothing in the plugin flow compiles it.
+#
+#   ~/.config/omarchy/plugins/megamvb.omawhats/install-daemon
+#
+# Safe to run again after `omarchy plugin update`: the running daemon keeps the
+# old binary until it is turned off and on again.
+
+set -euo pipefail
+
+BIN=omawhatsd
+BIN_DIR="${OMAWHATS_BIN_DIR:-$HOME/.local/bin}"
+SRC_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/daemon" && pwd)"
+GO_MIN=1.27
+
+fail() {
+  echo "install-daemon: $*" >&2
+  exit 1
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# ---- Go
+
+have go || fail "Go is not installed. On Omarchy: sudo pacman -S --needed go"
+
+go_version=$(go env GOVERSION 2>/dev/null || true)
+go_version=${go_version#go}
+go_version=${go_version%%-*}
+if [[ -n $go_version ]] &&
+  [[ $(printf '%s\n%s\n' "$GO_MIN" "$go_version" | sort -V | head -1) != "$GO_MIN" ]]; then
+  fail "Go $go_version is too old; $GO_MIN or newer is needed (sudo pacman -S go)"
+fi
+
+# ---- build
+
+echo "Building $BIN (this downloads the Go modules the first time)…"
+cd "$SRC_DIR"
+go build -trimpath -o "$BIN" .
+install -Dm755 "$BIN" "$BIN_DIR/$BIN"
+echo "Installed $BIN_DIR/$BIN"
+
+# ---- what the daemon and the client call out to
+
+missing=()
+note() { missing+=("$1"); }
+
+have ffmpeg || note "ffmpeg — animated GIFs arrive as a still frame (pacman -S ffmpeg)"
+have wl-paste || note "wl-clipboard — Ctrl+V cannot attach a screenshot, and copying a message does nothing (pacman -S wl-clipboard)"
+have notify-send || note "libnotify — no notifications for new messages (pacman -S libnotify)"
+have mpv || note "mpv — videos open in whatever xdg-open picks, if anything (pacman -S mpv)"
+if have pacman && ! pacman -Qq qt6-multimedia-ffmpeg >/dev/null 2>&1; then
+  note "qt6-multimedia-ffmpeg — voice messages will not play in the client (pacman -S qt6-multimedia-ffmpeg)"
+fi
+have omarchy-shell || note "this does not look like an Omarchy install: omarchy-shell is not in PATH"
+
+if ((${#missing[@]})); then
+  echo
+  echo "Optional pieces that are not here:"
+  printf '  - %s\n' "${missing[@]}"
+fi
+
+case ":$PATH:" in
+*":$BIN_DIR:"*) ;;
+*)
+  echo
+  echo "Note: $BIN_DIR is not in your PATH, so \`$BIN start\` will not be found in a"
+  echo "terminal. The plugin calls it by full path, so the bar icon works either way."
+  ;;
+esac
+
+cat <<DONE
+
+Done. Next:
+  1. Add the widget to the bar if it is not there yet:
+     omarchy plugin enable megamvb.omawhats --section right
+  2. Middle-click the icon to turn OmaWhats on, then scan the QR under
+     WhatsApp → Settings → Linked devices → Link a device.
+
+Updating later: omarchy plugin update megamvb.omawhats, run this script again,
+then turn the daemon off and on once so the new binary is used.
+DONE
