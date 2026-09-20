@@ -74,6 +74,37 @@ Turned off, the panel and the client still open and show what was stored
 (read-only). A daemon started from a terminal is picked up by the plugin
 immediately.
 
+### Away entirely, and back on demand
+
+Turning the daemon off leaves the widget in the bar. To leave nothing of
+OmaWhats running or on screen, and call it up only when you want it, use the
+`omawhats` command that `install-daemon` puts next to the daemon:
+
+```bash
+omawhats quit     # closes the client, stops the daemon, takes the widget off the bar
+omawhats open     # widget back where it was, daemon on, client open
+omawhats window   # the same, with the client in a window
+omawhats toggle   # quit if anything is on, open otherwise
+omawhats status   # what is on
+```
+
+`quit` remembers where the widget sat and the settings its bar entry carried
+(disabling a widget drops that entry), so `open` puts it back in the same
+place, with the same settings, rather than at the end of the section.
+
+The installer also adds a launcher entry, so **Apps → OmaWhats** in the
+Omarchy menu opens it. For rows in the menu itself, add these to
+`~/.config/omarchy/extensions/omarchy-menu.jsonc`:
+
+```jsonc
+"whatsapp": {"icon":"","label":"WhatsApp","aliases":["whatsapp","omawhats"],"description":"Open the OmaWhats client","when":"command -v omawhats","action":"omawhats open"},
+"whatsapp-quit": {"icon":"","label":"Quit WhatsApp","description":"Stop the daemon and take the widget off the bar","when":"omawhats running","action":"omawhats quit"},
+```
+
+The second row only shows while something is on (`omawhats running` says so by
+its exit status), and `omarchy menu summon whatsapp` opens the client from a
+keybinding.
+
 ## Use
 
 - **Click** the icon: panel (power, QR, latest chats). Keys: `O` open the

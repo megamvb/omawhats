@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=OmaWhats
+GenericName=WhatsApp client
+Comment=Open the OmaWhats client, bringing the bar widget and the daemon back if they were quit
+Exec=omawhats open
+Icon=whatsapp
+Terminal=false
+StartupNotify=false
+Categories=Network;InstantMessaging;
+Keywords=WhatsApp;chat;message;messaging;
+Actions=Window;Quit;
+
+[Desktop Action Window]
+Name=Open in a window
+Exec=omawhats window
+
+[Desktop Action Quit]
+Name=Quit
+Exec=omawhats quit

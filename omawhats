@@ -1,0 +1,144 @@
+#!/bin/bash
+
+# Puts the whole client away, and brings it back when you want it.
+#
+#   omawhats open      widget back on the bar, daemon on, client open
+#   omawhats window    the same, with the client in an ordinary window
+#   omawhats quit      client closed, daemon stopped, widget off the bar
+#   omawhats toggle    quit if anything is running, open otherwise
+#   omawhats status    one line about what is on
+#   omawhats running   nothing printed; succeeds while anything is on
+#
+# `quit` leaves nothing of OmaWhats running or on screen, which is the point:
+# the daemon is the only part that talks to WhatsApp, and the bar widget is
+# the only part the shell keeps loaded. Where the widget sat, and the settings
+# it carried, are remembered so `open` puts it back exactly as it was.
+#
+# Made for a menu entry (see the README), but it works from a terminal too.
+
+set -euo pipefail
+
+ID="megamvb.omawhats"
+DAEMON="${OMAWHATS_DAEMON:-$HOME/.local/bin/omawhatsd}"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omawhats"
+SAVED="$STATE_DIR/bar-entry.json"
+
+fail() {
+  echo "omawhats: $*" >&2
+  exit 1
+}
+
+shell_up() { omarchy-shell shell ping >/dev/null 2>&1; }
+
+daemon_up() { "$DAEMON" status >/dev/null 2>&1; }
+
+# The widget's line in the bar layout as {section, index, after, entry}, or
+# nothing at all when the widget is not on the bar. An entry is either a plain
+# id or an object carrying the widget's settings; both are kept as they are.
+bar_entry() {
+  [[ -f $CONFIG ]] || return 0
+  jq -c --arg id "$ID" '
+    (.bar.layout // {}) | to_entries[] | .key as $section
+    | (.value | to_entries | map(. + {wid: (.value | if type == "string" then . else (.id // "") end)}))
+    | . as $row
+    | $row[] | select(.wid == $id)
+    | {section: $section, index: .key, entry: .value,
+       after: (if .key > 0 then $row[.key - 1].wid else "" end)}
+  ' "$CONFIG" 2>/dev/null | head -1
+}
+
+on_bar() { [[ -n $(bar_entry) ]]; }
+
+# Back on the bar where it was, with the settings the entry carried: disabling
+# a widget drops its layout entry, and the entry is where those settings live.
+restore_widget() {
+  local saved="{}" section after index key value
+  if [[ -f $SAVED ]]; then saved=$(<"$SAVED"); fi
+  section=$(jq -r '.section // "right"' <<<"$saved")
+  after=$(jq -r '.after // ""' <<<"$saved")
+  index=$(jq -r 'if .index == null then "" else .index end' <<<"$saved")
+
+  # A neighbour that is no longer on the bar, or a section that shrank, must
+  # not keep the widget off it; each fallback is one step vaguer.
+  if [[ -n $after ]] && omarchy-plugin-enable "$ID" --section "$section" --after "$after" >/dev/null 2>&1; then
+    :
+  elif [[ -n $index ]] && omarchy-plugin-enable "$ID" --section "$section" --index "$index" >/dev/null 2>&1; then
+    :
+  else
+    omarchy-plugin-enable "$ID" --section "$section" >/dev/null ||
+      fail "could not put the widget back on the bar"
+  fi
+
+  while IFS= read -r key; do
+    value=$(jq -c --arg k "$key" '.entry[$k]' <<<"$saved")
+    omarchy-shell shell setBarWidget "$ID" "$key" "$value" '{}' >/dev/null 2>&1 || true
+  done < <(jq -r '
+    if (.entry | type) == "object" then (.entry | keys_unsorted[] | select(. != "id")) else empty end
+  ' <<<"$saved")
+
+  # The shell loads the widget after the config comes back to it; its IPC
+  # target answering is what says the plugin is up.
+  local i
+  for ((i = 0; i < 50; i++)); do
+    omarchy-shell "$ID" status >/dev/null 2>&1 && return 0
+    sleep 0.1
+  done
+  fail "the widget did not come up; try: omarchy restart shell"
+}
+
+cmd_open() {
+  local payload="{}"
+  [[ ${1:-} == window ]] && payload='{"window":true}'
+  shell_up || fail "the Omarchy shell is not running"
+
+  on_bar || restore_widget
+
+  # Through the widget, so the daemon gets the settings the widget holds
+  # (notifications, read receipts, how many chats). By hand if that fails.
+  if ! daemon_up; then
+    omarchy-shell "$ID" start >/dev/null 2>&1 || "$DAEMON" start >/dev/null ||
+      fail "the daemon did not start; see ${XDG_STATE_HOME:-$HOME/.local/state}/omawhats/omawhatsd.log"
+  fi
+
+  omarchy-shell shell summon "$ID" "$payload" >/dev/null
+}
+
+cmd_quit() {
+  local entry
+  entry=$(bar_entry)
+  if shell_up; then omarchy-shell -q shell hide "$ID" >/dev/null; fi
+  if daemon_up; then "$DAEMON" stop >/dev/null; fi
+  if [[ -n $entry ]]; then
+    mkdir -p "$STATE_DIR"
+    printf '%s\n' "$entry" >"$SAVED"
+    omarchy-plugin-disable "$ID" >/dev/null
+  fi
+  return 0
+}
+
+cmd_status() {
+  local widget="off the bar" daemon="off"
+  if on_bar; then widget="on the bar"; fi
+  if daemon_up; then daemon="on"; fi
+  echo "OmaWhats: widget $widget, daemon $daemon"
+}
+
+case "${1:-status}" in
+open) cmd_open ;;
+window) cmd_open window ;;
+quit) cmd_quit ;;
+toggle)
+  if on_bar || daemon_up; then cmd_quit; else cmd_open; fi
+  ;;
+status) cmd_status ;;
+running)
+  # Plain 1 when nothing is on: a menu guard only reads success or failure,
+  # but the daemon's own "stopped" exit code (3) would be a confusing answer.
+  if on_bar || daemon_up; then exit 0; else exit 1; fi
+  ;;
+-h | --help | help)
+  sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
+  ;;
+*) fail "unknown command: $1 (try --help)" ;;
+esac

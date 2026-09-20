@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# Builds omawhatsd and puts it in ~/.local/bin. The Omarchy plugin itself needs
-# no installing — `omarchy plugin add` clones this folder into place — but the
-# daemon is a Go program, and nothing in the plugin flow compiles it.
+# Builds omawhatsd and puts it in ~/.local/bin, along with the `omawhats`
+# command and its launcher entry. The Omarchy plugin itself needs no installing
+# — `omarchy plugin add` clones this folder into place — but the daemon is a Go
+# program, and nothing in the plugin flow compiles it.
 #
 #   ~/.config/omarchy/plugins/megamvb.omawhats/install-daemon
 #
@@ -17,7 +18,9 @@ set -euo pipefail
 
 BIN=omawhatsd
 BIN_DIR="${OMAWHATS_BIN_DIR:-$HOME/.local/bin}"
-SRC_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/daemon" && pwd)"
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="$ROOT_DIR/daemon"
+APP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 GO_MIN=1.27
 GO_WANT=latest # what mise is asked for
 ASSUME_YES=0
@@ -51,7 +54,7 @@ while (($# > 0)); do
     shift
     ;;
   -h | --help)
-    sed -n '3,14p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
+    sed -n '3,15p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
     exit 0
     ;;
   *) fail "unknown option: $1" ;;
@@ -110,6 +113,17 @@ cd "$SRC_DIR"
 install -Dm755 "$BIN" "$BIN_DIR/$BIN"
 echo "Installed $BIN_DIR/$BIN"
 
+# ---- the command that opens and quits the whole thing, and its menu entry
+
+install -Dm755 "$ROOT_DIR/omawhats" "$BIN_DIR/omawhats"
+# The launcher may not have ~/.local/bin in its PATH, so the entry names the
+# command by the path it was just installed at.
+desktop=$(mktemp)
+trap 'rm -f "$desktop"' EXIT
+sed "s|^Exec=omawhats|Exec=$BIN_DIR/omawhats|" "$ROOT_DIR/omawhats.desktop" >"$desktop"
+install -Dm644 "$desktop" "$APP_DIR/omawhats.desktop"
+echo "Installed $BIN_DIR/omawhats and $APP_DIR/omawhats.desktop"
+
 # ---- what the daemon and the client call out to
 
 missing=()
@@ -146,6 +160,12 @@ Done. Next:
      omarchy plugin enable megamvb.omawhats --section right
   2. Middle-click the icon to turn OmaWhats on, then scan the QR under
      WhatsApp → Settings → Linked devices → Link a device.
+
+To put OmaWhats away for good and call it back only when you want it:
+  omawhats quit    stops the daemon and takes the widget off the bar
+  omawhats open    puts the widget back where it was and opens the client
+The same two from the menu: Apps → OmaWhats, or add two rows to
+~/.config/omarchy/extensions/omarchy-menu.jsonc (see the README).
 
 Updating later: omarchy plugin update megamvb.omawhats, run this script again,
 then turn the daemon off and on once so the new binary is used.
