@@ -2,12 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -237,6 +240,30 @@ func TestForcedFetchTakesANewName(t *testing.T) {
 	}
 	if later := fetchStem("F2", true, now.Add(time.Minute)); later == got {
 		t.Errorf("two forced fetches took the same name: %q", got)
+	}
+}
+
+// Every way WhatsApp says "not from that address" must send us to the phone,
+// and nothing else may.
+func TestRefusedByWhatsApp(t *testing.T) {
+	for _, err := range []error{
+		whatsmeow.ErrMediaDownloadFailedWith403,
+		whatsmeow.ErrMediaDownloadFailedWith404,
+		whatsmeow.ErrMediaDownloadFailedWith410,
+		fmt.Errorf("wrapped: %w", whatsmeow.ErrMediaDownloadFailedWith403),
+	} {
+		if !refusedByWhatsApp(err) {
+			t.Errorf("%v should send us to the phone", err)
+		}
+	}
+	for _, err := range []error{
+		errors.New("connection reset"),
+		whatsmeow.ErrInvalidMediaSHA256,
+		nil,
+	} {
+		if refusedByWhatsApp(err) {
+			t.Errorf("%v is not the server refusing the address", err)
+		}
 	}
 }
 

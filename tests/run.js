@@ -176,10 +176,10 @@ eq("hasCachedFile gif", M.hasCachedFile({ type: "gif", file: "/a.mp4", anim: "/a
 eq("hasCachedFile nothing", M.hasCachedFile(null), false)
 
 // The line in the empty half of the window: what is running, on both sides.
-eq("versionLine both", M.versionLine("0.6.2", { version: "0.6.2" }, true), "OmaWhats 0.6.2 · daemon 0.6.2")
-eq("versionLine daemon behind", M.versionLine("0.6.2", { version: "0.6.1" }, true), "OmaWhats 0.6.2 · daemon 0.6.1")
-eq("versionLine daemon too old to say", M.versionLine("0.6.2", {}, true), "OmaWhats 0.6.2 · daemon from an older install")
-eq("versionLine off", M.versionLine("0.6.2", { version: "0.6.2" }, false), "OmaWhats 0.6.2 · daemon off")
+eq("versionLine both", M.versionLine("0.6.3", { version: "0.6.3" }, true), "OmaWhats 0.6.3 · daemon 0.6.3")
+eq("versionLine daemon behind", M.versionLine("0.6.3", { version: "0.6.1" }, true), "OmaWhats 0.6.3 · daemon 0.6.1")
+eq("versionLine daemon too old to say", M.versionLine("0.6.3", {}, true), "OmaWhats 0.6.3 · daemon from an older install")
+eq("versionLine off", M.versionLine("0.6.3", { version: "0.6.3" }, false), "OmaWhats 0.6.3 · daemon off")
 eq("versionLine without a manifest", M.versionLine("", null, false), "OmaWhats · daemon off")
 eq("fitScale big", M.fitScale(4000, 3000, 800, 600), 0.2)
 eq("fitScale small", M.fitScale(100, 100, 800, 600), 3)

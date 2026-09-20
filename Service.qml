@@ -252,7 +252,7 @@ Item {
   // file filled in. force says the copy already here is no good: the daemon
   // throws it away and fetches another, under a name of its own.
   function requestMedia(chat, id, open, force) {
-    if (!live) return ""
+    if (!live || !chat || !id) return ""
     _reqSeq += 1
     var req = "m" + Date.now() + "-" + _reqSeq
     return write({ cmd: "media", chat: chat, id: id, open: open === true,

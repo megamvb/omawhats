@@ -325,6 +325,10 @@ func fileExists(path string) bool {
 // then the file goes and another is fetched in its place.
 func (dl *downloader) fetch(chat, id string, force bool, done func(*Media, error)) {
 	d := dl.d
+	if id == "" {
+		done(nil, errors.New("no message was named"))
+		return
+	}
 	md, _, err := loadMedia(d.ctx, d.db, chat, id)
 	if err != nil {
 		log.Printf("media %s: %v", id, err)
@@ -415,14 +419,16 @@ func (dl *downloader) run(job *mediaJob, afterRetry bool) {
 	f.Close()
 	if err != nil {
 		os.Remove(tmp)
-		expired := errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) || errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
-		if expired && !afterRetry {
-			if rerr := dl.requestRetry(job, wm); rerr == nil {
+		refused := refusedByWhatsApp(err)
+		if refused && !afterRetry {
+			rerr := dl.requestRetry(job, wm)
+			if rerr == nil {
 				return // finished by the MediaRetry event, or by the timeout
 			}
+			log.Printf("media %s: could not ask the phone to send it again: %v", job.id, rerr)
 		}
-		if expired {
-			err = errors.New("the media expired and the phone no longer has it")
+		if refused {
+			err = errors.New("WhatsApp no longer serves this one and the phone did not send it again")
 		}
 		dl.finish(job, nil, err)
 		return
@@ -447,6 +453,17 @@ func (dl *downloader) run(job *mediaJob, afterRetry bool) {
 		}
 	}
 	dl.finish(job, md, nil)
+}
+
+// refusedByWhatsApp is whether the address the message carries will not be
+// served any more, whichever way the server says so. 403 belongs here with 404
+// and 410: it is the answer a stored address too old to be honoured gets, so
+// every attachment in a long-synced copy of a chat runs into it. The phone is
+// the only other place to ask, and it is asked the same way for all three.
+func refusedByWhatsApp(err error) bool {
+	return errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
+		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
+		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
 }
 
 // requestRetry asks the phone to upload old media again; the answer arrives

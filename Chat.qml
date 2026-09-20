@@ -380,6 +380,7 @@ Item {
   // here and still nothing can be shown, the ask goes with force, so the
   // daemon drops that copy instead of handing the same one back.
   function retryMedia(id) {
+    if (!id) return
     var idx = indexOfId(id)
     if (idx < 0) return
     if (!wa.live) {
