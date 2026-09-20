@@ -148,8 +148,9 @@ case ":$PATH:" in
 *":$BIN_DIR:"*) ;;
 *)
   echo
-  echo "Note: $BIN_DIR is not in your PATH, so \`$BIN start\` will not be found in a"
-  echo "terminal. The plugin calls it by full path, so the bar icon works either way."
+  echo "Note: $BIN_DIR is not in your PATH, so \`$BIN\` and \`omawhats\` will not be"
+  echo "found in a terminal — call them by full path, or add the directory to PATH."
+  echo "The plugin and the menu entry use full paths, so both work either way."
   ;;
 esac
 
@@ -164,8 +165,13 @@ Done. Next:
 To put OmaWhats away for good and call it back only when you want it:
   omawhats quit    stops the daemon and takes the widget off the bar
   omawhats open    puts the widget back where it was and opens the client
-The same two from the menu: Apps → OmaWhats, or add two rows to
-~/.config/omarchy/extensions/omarchy-menu.jsonc (see the README).
+
+Apps → OmaWhats in the menu opens it too, from the entry just installed. For
+rows in the menu itself, add these to
+~/.config/omarchy/extensions/omarchy-menu.jsonc (nothing here edits it):
+
+  "whatsapp": {"icon":"","label":"WhatsApp","aliases":["whatsapp","omawhats"],"when":"command -v omawhats","action":"omawhats open"},
+  "whatsapp-quit": {"icon":"","label":"Quit WhatsApp","when":"omawhats running","action":"omawhats quit"},
 
 Updating later: omarchy plugin update megamvb.omawhats, run this script again,
 then turn the daemon off and on once so the new binary is used.
