@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,5 +180,78 @@ func TestPruneCacheBySize(t *testing.T) {
 	}
 	if md := mediaOfStored(t, d, "B1"); md.File != "" {
 		t.Errorf("B1 should have forgotten its file: %+v", md)
+	}
+}
+
+// ---- fetching again
+
+// A copy already in the cache answers on the spot, and asking with force says
+// that copy is no good — which, with nowhere to fetch another from, must leave
+// the one that is there where it is.
+func TestMediaFetchForceKeepsTheCopyWhenOffline(t *testing.T) {
+	d := testDaemon(t)
+	dl := newDownloader(d)
+	d.dl = dl
+
+	file := touch(t, "F1.jpg", 4000, time.Minute)
+	storeMedia(t, d, "F1", &Media{Type: "image", File: file}, nil, nil)
+
+	answered := make(chan error, 1)
+	dl.fetch(testChat, "F1", false, func(md *Media, err error) { answered <- err })
+	select {
+	case err := <-answered:
+		if err != nil {
+			t.Fatalf("the cached copy should answer at once: %v", err)
+		}
+	default:
+		t.Fatal("the waiter was never called")
+	}
+
+	dl.fetch(testChat, "F1", true, func(md *Media, err error) { answered <- err })
+	select {
+	case err := <-answered:
+		if err == nil {
+			t.Fatal("want an error with no client to download from")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the forced fetch never answered")
+	}
+	if !exists(file) {
+		t.Error("the copy was thrown away with nothing to put in its place")
+	}
+	if got := mediaOfStored(t, d, "F1").File; got != file {
+		t.Errorf("the stored message lost its file: %q", got)
+	}
+}
+
+// A forced fetch writes under a name of its own, so a client holding the
+// picture under the old name is not handed the same one back.
+func TestForcedFetchTakesANewName(t *testing.T) {
+	now := time.Unix(1789916976, 0)
+	if got := fetchStem("F2", false, now); got != "F2" {
+		t.Errorf("an ordinary fetch keeps the message's name, got %q", got)
+	}
+	got := fetchStem("F2", true, now)
+	if got == "F2" || !strings.HasPrefix(got, "F2-") {
+		t.Errorf("a forced fetch wants a name of its own, got %q", got)
+	}
+	if later := fetchStem("F2", true, now.Add(time.Minute)); later == got {
+		t.Errorf("two forced fetches took the same name: %q", got)
+	}
+}
+
+// Thumbnails are written once from the message itself and cannot be fetched
+// again, so nothing may drop one.
+func TestDropCachedLeavesThumbnails(t *testing.T) {
+	thumb := touch(t, "F3.thumb.jpg", 300, time.Minute)
+	file := touch(t, "F3.jpg", 3000, time.Minute)
+	dropCached(thumb)
+	dropCached(file)
+	dropCached("")
+	if !exists(thumb) {
+		t.Error("the thumbnail was dropped")
+	}
+	if exists(file) {
+		t.Error("the downloaded copy is still there")
 	}
 }

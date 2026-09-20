@@ -159,7 +159,7 @@ Every action has a key. **F1** (or the keyboard button at the top) lists them.
 | 1 … 6, ←/→ Enter, + | In the reaction bar: 👍 ❤️ 😂 😮 😢 🙏, pick with the arrows, or any other emoji |
 | Alt+P | Play / pause the current audio |
 | Alt+S | Audio speed 1× / 1.5× / 2× |
-| ← / →, + / −, 0 / 1, R, O, Esc | In the image viewer: previous / next, zoom, fit / actual size, download again, open outside, close |
+| ← / →, + / −, 0 / 1, R, O, Esc | In the image viewer: previous / next, zoom, fit / actual size, fetch a fresh copy, open outside, close |
 | Ctrl+Shift+P | Turn OmaWhats on / off |
 | Ctrl+R | Refresh; new QR code while linking |
 | Ctrl+Shift+L | Log out (unlink this computer) |
@@ -181,9 +181,14 @@ delivered/read ticks, edited and deleted messages, notifications with an
   large **inside the client**: wheel or +/− to zoom (about the cursor), drag
   to pan, double-click or 0/1 for fit / actual size, ←/→ through the chat's
   pictures, caption and sender shown, O (or the button) opens the system
-  image viewer. A picture not downloaded yet shows its thumbnail at full size
-  while the real one is fetched, and a download that fails says so under the
-  picture, with a **Try again** button (R) beside it;
+  image viewer, and the ↻ button (R), always there, fetches the picture again
+  whatever state it is in — a copy that opens can still be the wrong one. A
+  picture not downloaded yet shows its thumbnail at full size while the real
+  one is fetched; a download that fails says so under the picture, with a
+  **Try again** button beside it, and so does a picture that will not show
+  although a copy is here. Fetching again writes the new copy under a name of
+  its own, so nothing old is shown in its place, and the copy that would not
+  show is dropped only once the new one has landed;
 - animated **GIFs** (WhatsApp sends MP4; the daemon converts it to animated
   WebP with ffmpeg);
 - **videos** as a thumbnail with ▶ and length — a click downloads and opens it

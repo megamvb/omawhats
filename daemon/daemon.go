@@ -38,6 +38,7 @@ type State struct {
 	Error        string   `json:"error"`
 	ReadReceipts bool     `json:"readReceipts"`
 	Syncing      bool     `json:"syncing"`
+	Version      string   `json:"version"`
 }
 
 type options struct {
@@ -89,7 +90,7 @@ func newDaemon(ctx context.Context, cancel context.CancelFunc, db *sql.DB, opts 
 		outbox:       make(chan outgoing, 256),
 		olderPending: map[string]*time.Timer{},
 		olderDone:    map[string]bool{},
-		state:        State{Type: "state", State: "starting", Running: true, QR: []string{}, ReadReceipts: opts.readReceipts},
+		state:        State{Type: "state", State: "starting", Running: true, QR: []string{}, ReadReceipts: opts.readReceipts, Version: version},
 	}
 	d.dl = newDownloader(d)
 	d.container = sqlstore.NewWithDB(db, "sqlite3", waLog.Stdout("store", "WARN", false))

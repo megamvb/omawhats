@@ -249,12 +249,14 @@ Item {
 
   // Asks the daemon to download a message's attachment; the answer comes back
   // as mediaResult, and every client also gets the message re-sent with the
-  // file filled in.
-  function requestMedia(chat, id, open) {
+  // file filled in. force says the copy already here is no good: the daemon
+  // throws it away and fetches another, under a name of its own.
+  function requestMedia(chat, id, open, force) {
     if (!live) return ""
     _reqSeq += 1
     var req = "m" + Date.now() + "-" + _reqSeq
-    return write({ cmd: "media", chat: chat, id: id, open: open === true, req: req }) ? req : ""
+    return write({ cmd: "media", chat: chat, id: id, open: open === true,
+                   force: force === true, req: req }) ? req : ""
   }
 
   function focusOn(chat) {

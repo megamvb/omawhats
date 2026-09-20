@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -272,6 +273,8 @@ func saveMedia(ctx context.Context, db *sql.DB, chat, id string, md *Media, wm *
 // ---- downloads
 
 type mediaJob struct {
+	force    bool   // the copy on disk is no good: drop it and fetch another
+	stem     string // what the file is named after: the message, or a forced fetch's own
 	chat, id string
 	waiters  []func(*Media, error)
 }
@@ -288,6 +291,26 @@ func newDownloader(d *Daemon) *downloader {
 	return &downloader{d: d, jobs: map[string]*mediaJob{}, retries: map[string]*mediaJob{}, slots: make(chan struct{}, 3)}
 }
 
+// fetchStem is what a fetched file is named after: the message it belongs to,
+// or — when the copy under that name is the one being replaced — a name of its
+// own. Written back over the same path, a client that already holds the
+// picture under that name would go on showing the one it could not use.
+func fetchStem(id string, force bool, now time.Time) string {
+	if !force {
+		return id
+	}
+	return id + "-" + strconv.FormatInt(now.Unix(), 36)
+}
+
+// dropCached removes a downloaded copy. Thumbnails never come this way: they
+// are written once from the message itself and cannot be fetched again.
+func dropCached(path string) {
+	if path == "" || strings.HasSuffix(path, ".thumb.jpg") {
+		return
+	}
+	os.Remove(path)
+}
+
 func fileExists(path string) bool {
 	if path == "" {
 		return false
@@ -297,15 +320,18 @@ func fileExists(path string) bool {
 }
 
 // fetch downloads a message's attachment (once, however many ask) and calls
-// done with the result. Already-cached files answer immediately.
-func (dl *downloader) fetch(chat, id string, done func(*Media, error)) {
+// done with the result. Already-cached files answer immediately — unless the
+// asker says force, which is how a client says the copy it has is no good:
+// then the file goes and another is fetched in its place.
+func (dl *downloader) fetch(chat, id string, force bool, done func(*Media, error)) {
 	d := dl.d
 	md, _, err := loadMedia(d.ctx, d.db, chat, id)
 	if err != nil {
+		log.Printf("media %s: %v", id, err)
 		done(nil, err)
 		return
 	}
-	if fileExists(md.File) && (md.Type != "gif" || fileExists(md.Anim)) {
+	if !force && fileExists(md.File) && (md.Type != "gif" || fileExists(md.Anim)) {
 		done(md, nil)
 		return
 	}
@@ -320,7 +346,8 @@ func (dl *downloader) fetch(chat, id string, done func(*Media, error)) {
 		dl.mu.Unlock()
 		return
 	}
-	job := &mediaJob{chat: chat, id: id, waiters: []func(*Media, error){done}}
+	job := &mediaJob{chat: chat, id: id, force: force, stem: fetchStem(id, force, time.Now()),
+		waiters: []func(*Media, error){done}}
 	dl.jobs[id] = job
 	dl.mu.Unlock()
 	go dl.run(job, false)
@@ -332,6 +359,11 @@ func (dl *downloader) finish(job *mediaJob, md *Media, err error) {
 	delete(dl.retries, job.id)
 	waiters := job.waiters
 	dl.mu.Unlock()
+	// Nothing else writes down why a download did not work, and "it just does
+	// not open" is no help to whoever has to find out why.
+	if err != nil {
+		log.Printf("media %s: %v", job.id, err)
+	}
 	for _, w := range waiters {
 		w(md, err)
 	}
@@ -364,7 +396,13 @@ func (dl *downloader) run(job *mediaJob, afterRetry bool) {
 		dl.finish(job, nil, err)
 		return
 	}
-	path := mediaPath(job.id, "."+extFor(md))
+	// What is here now, to be dropped once something better has landed.
+	oldFile, oldAnim := md.File, md.Anim
+	stem := job.stem
+	if stem == "" {
+		stem = job.id
+	}
+	path := mediaPath(stem, "."+extFor(md))
 	tmp := path + ".part"
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -395,9 +433,19 @@ func (dl *downloader) run(job *mediaJob, afterRetry bool) {
 	}
 	md.File = path
 	if md.Type == "gif" {
-		md.Anim = gifToWebp(path, mediaPath(job.id, ".gif.webp"))
+		md.Anim = gifToWebp(path, mediaPath(stem, ".gif.webp"))
 	}
 	saveMedia(d.ctx, d.db, job.chat, job.id, md, nil)
+	// The copy that could not be shown goes only now that another one is
+	// here: a forced fetch that fails must not leave the person with nothing.
+	if job.force {
+		if oldFile != md.File {
+			dropCached(oldFile)
+		}
+		if oldAnim != md.Anim {
+			dropCached(oldAnim)
+		}
+	}
 	dl.finish(job, md, nil)
 }
 

@@ -20,6 +20,7 @@ type Request struct {
 	BeforeID string `json:"beforeId"`
 	ID       string `json:"id"`
 	Open     bool   `json:"open"`
+	Force    bool   `json:"force"` // media: the copy here is no good, fetch another
 	Wipe     bool   `json:"wipe"`
 	Quote    string `json:"quote"` // send: the id of the message this answers
 	Emoji    string `json:"emoji"` // react: "" removes the reaction
@@ -216,7 +217,7 @@ func (d *Daemon) dispatch(c *conn, r Request) {
 			c.send(map[string]any{"type": "sent", "req": r.Req, "chat": r.Chat, "ok": false, "error": "too many files waiting to be sent"})
 		}
 	case "media":
-		d.dl.fetch(r.Chat, r.ID, func(md *Media, err error) {
+		d.dl.fetch(r.Chat, r.ID, r.Force, func(md *Media, err error) {
 			reply := map[string]any{"type": "media", "req": r.Req, "chat": r.Chat, "id": r.ID, "ok": err == nil, "open": r.Open}
 			if err != nil {
 				reply["error"] = err.Error()

@@ -247,7 +247,7 @@ func printJSON(v any) {
 }
 
 func stoppedState() State {
-	s := State{Type: "state", State: "stopped", QR: []string{}}
+	s := State{Type: "state", State: "stopped", QR: []string{}, Version: version}
 	if db, err := openDB(true); err == nil {
 		defer db.Close()
 		if jid, name, ok := devicePaired(context.Background(), db); ok {

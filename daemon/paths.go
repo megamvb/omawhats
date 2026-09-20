@@ -8,6 +8,10 @@ import (
 
 const appName = "omawhats"
 
+// Kept level with the plugin's manifest version. The client shows both, so a
+// daemon left over from an older install can be told at a glance.
+const version = "0.6.2"
+
 func xdgDir(env, fallback string) string {
 	if v := os.Getenv(env); v != "" {
 		return v

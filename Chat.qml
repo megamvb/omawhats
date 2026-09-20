@@ -376,7 +376,9 @@ Item {
 
   // Ask for an attachment again after a download failed, or was never made:
   // the note saying it was already asked for has to go, or the next scroll
-  // past it would take this for a repeat and drop it.
+  // past it would take this for a repeat and drop it. When a file is already
+  // here and still nothing can be shown, the ask goes with force, so the
+  // daemon drops that copy instead of handing the same one back.
   function retryMedia(id) {
     var idx = indexOfId(id)
     if (idx < 0) return
@@ -384,9 +386,10 @@ Item {
       messages.setProperty(idx, "mediaState", "Turn OmaWhats on to download")
       return
     }
+    var media = Model.parseJson(messages.get(idx).mediaJson)
     delete _mediaAsked[id]
     messages.setProperty(idx, "mediaState", "loading")
-    wa.requestMedia(currentChat, id, false)
+    wa.requestMedia(currentChat, id, false, Model.hasCachedFile(media))
   }
 
   // Anything opened outside the shell would land underneath the full-screen
@@ -1771,6 +1774,17 @@ Item {
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
+              }
+              // Which halves are actually running: the plugin is reloaded by
+              // the shell, the daemon only when it is turned off and on, so
+              // the two can be of different ages without anything saying so.
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: Model.versionLine(root.manifest ? root.manifest.version : "", wa.daemonState, wa.live)
+                color: root.dim
+                opacity: 0.7
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
               }
             }
           }
@@ -3507,18 +3521,36 @@ Item {
       readonly property bool loading: mediaState === "loading"
       readonly property string failure: loading || mediaState === "sending" ? "" : mediaState
       readonly property bool empty: root.viewerSrc.source === ""
+      // A picture that is here and still shows nothing: the file did not open,
+      // or it opened with no size to lay out. Without this the viewer just
+      // goes black and says nothing, which is no answer to anyone.
+      readonly property int imgStatus: root.viewerSrc.animated ? animImg.status : stillImg.status
+      // Nothing on screen: nothing to show, a file that would not open, or one
+      // that opened with no size to lay out.
+      readonly property bool nothingShown: empty || imgStatus === Image.Error || naturalW <= 0 || naturalH <= 0
+      readonly property bool broken: !empty && !loading && nothingShown &&
+        imgStatus !== Image.Loading && imgStatus !== Image.Null
+      onBrokenChanged: if (broken) {
+        wa.trace("viewer " + root.viewerId + " shows nothing: status=" + imgStatus +
+                 " size=" + Math.round(naturalW) + "x" + Math.round(naturalH) +
+                 " full=" + root.viewerSrc.full)
+      }
       // One line under the picture, or in place of it: what went wrong, or
       // why there is nothing to look at yet.
       readonly property string message: {
         if (failure !== "") return failure
+        if (broken) return "This picture did not open" +
+          (wa.live ? " — its copy here can be fetched again" : "")
+        // While it is on its way, only where the wait is all there is to see:
+        // over a picture the line at the top already says it.
+        if (loading) return nothingShown ? "Downloading…" : ""
         if (!empty) return ""
-        if (loading) return "Downloading…"
         return wa.live ? "This picture has not been downloaded yet"
                        : "Turn OmaWhats on to see this picture"
       }
-      // Worth offering another go: it failed, or the full picture is not here
-      // and nothing is fetching it.
-      readonly property bool canRetry: failure !== "" || (!root.viewerSrc.full && !loading)
+      // Worth offering another go: it failed, it shows nothing, or the full
+      // picture is not here and nothing is fetching it.
+      readonly property bool canRetry: failure !== "" || broken || (!root.viewerSrc.full && !loading)
 
       // Zoom about a point of the view (cx, cy), keeping it under the cursor.
       function zoomTo(z, cx, cy) {
@@ -3556,7 +3588,7 @@ Item {
           else if (k === Qt.Key_0) viewer.zoomTo(1)
           else if (k === Qt.Key_1) viewer.actualSize()
           else if (k === Qt.Key_R) {
-            if (viewer.canRetry) root.retryMedia(root.viewerId)
+            if (!viewer.loading) root.retryMedia(root.viewerId)
           }
           else if (k === Qt.Key_O) {
             if (root.viewerSrc.full && root.viewerMedia && root.viewerMedia.file) root.openFile(root.viewerMedia.file)
@@ -3652,12 +3684,12 @@ Item {
         anchors.horizontalCenter: viewFlick.horizontalCenter
         // Placed by hand rather than re-anchored: an anchor taken away again
         // does not give the item its old place back.
-        y: viewer.empty ? viewFlick.y + (viewFlick.height - height) / 2
-                        : viewFlick.y + viewFlick.height - height - Style.space(10)
+        y: viewer.nothingShown ? viewFlick.y + (viewFlick.height - height) / 2
+                               : viewFlick.y + viewFlick.height - height - Style.space(10)
 
         Text {
           anchors.verticalCenter: parent.verticalCenter
-          visible: viewer.failure !== ""
+          visible: viewer.failure !== "" || viewer.broken
           text: Model.GLYPH_WARNING
           color: Color.urgent
           font.family: root.fontFamily
@@ -3678,7 +3710,7 @@ Item {
           anchors.verticalCenter: parent.verticalCenter
           visible: viewer.canRetry
           enabled: wa.live
-          label: viewer.failure !== "" ? "Try again" : "Download"
+          label: viewer.failure !== "" || viewer.broken ? "Try again" : "Download"
           tip: wa.live ? "Download this picture again (R)" : "Turn OmaWhats on to download"
           onClicked: root.retryMedia(root.viewerId)
         }
@@ -3729,6 +3761,20 @@ Item {
         ViewerButton { label: "−"; big: true; tip: "Zoom out (−)"; onClicked: viewer.zoomTo(viewer.zoom / 1.25) }
         ViewerButton { label: "+"; big: true; tip: "Zoom in (+)"; onClicked: viewer.zoomTo(viewer.zoom * 1.25) }
         ViewerButton { label: viewer.zoom > 1.01 ? "Fit" : "100%"; tip: "Fit to window (0) / actual size (1)"; onClicked: viewer.zoom > 1.01 ? viewer.zoomTo(1) : viewer.actualSize() }
+        // Always there, whatever state the picture is in: a copy that opens
+        // can still be the wrong one, or half of one, and only the person
+        // looking at it can tell.
+        ViewerButton {
+          glyph: Model.GLYPH_REFRESH
+          // Kept live with OmaWhats off as well: dimmed on black it reads as
+          // absent, and the answer to a click then says what to do about it.
+          enabled: !viewer.loading
+          tip: !wa.live ? "Turn OmaWhats on to download"
+             : viewer.loading ? "Downloading…"
+             : Model.hasCachedFile(root.viewerMedia) ? "Fetch this picture again (R)"
+             : "Download this picture (R)"
+          onClicked: root.retryMedia(root.viewerId)
+        }
         ViewerButton {
           glyph: Model.GLYPH_OPEN_EXTERNAL
           tip: "Open in the system image viewer (O)"

@@ -167,6 +167,20 @@ eq("viewerSource thumb", M.viewerSource({ type: "image", thumb: "/t" }), { sourc
 eq("viewerSource gif", M.viewerSource({ type: "gif", file: "/a.mp4", anim: "/a.webp" }), { source: "file:///a.webp", animated: true, full: true })
 eq("viewerSource gif unconverted", M.viewerSource({ type: "gif", file: "/a.mp4", thumb: "/t" }).full, false)
 eq("viewerSource sticker", M.viewerSource({ type: "sticker", file: "/s.webp", animated: true }).animated, true)
+
+// A copy already downloaded is what makes asking for it again a forced ask.
+eq("hasCachedFile none", M.hasCachedFile({ type: "image", thumb: "/t" }), false)
+eq("hasCachedFile image", M.hasCachedFile({ type: "image", file: "/a.jpg" }), true)
+eq("hasCachedFile gif unconverted", M.hasCachedFile({ type: "gif", file: "/a.mp4" }), false)
+eq("hasCachedFile gif", M.hasCachedFile({ type: "gif", file: "/a.mp4", anim: "/a.webp" }), true)
+eq("hasCachedFile nothing", M.hasCachedFile(null), false)
+
+// The line in the empty half of the window: what is running, on both sides.
+eq("versionLine both", M.versionLine("0.6.2", { version: "0.6.2" }, true), "OmaWhats 0.6.2 · daemon 0.6.2")
+eq("versionLine daemon behind", M.versionLine("0.6.2", { version: "0.6.1" }, true), "OmaWhats 0.6.2 · daemon 0.6.1")
+eq("versionLine daemon too old to say", M.versionLine("0.6.2", {}, true), "OmaWhats 0.6.2 · daemon from an older install")
+eq("versionLine off", M.versionLine("0.6.2", { version: "0.6.2" }, false), "OmaWhats 0.6.2 · daemon off")
+eq("versionLine without a manifest", M.versionLine("", null, false), "OmaWhats · daemon off")
 eq("fitScale big", M.fitScale(4000, 3000, 800, 600), 0.2)
 eq("fitScale small", M.fitScale(100, 100, 800, 600), 3)
 eq("fitScale mid", M.fitScale(500, 400, 800, 600), 1)

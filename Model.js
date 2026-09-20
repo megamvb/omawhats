@@ -34,8 +34,21 @@ var GLYPH_FILE_IMAGE = "\u{f021f}"
 function defaultState() {
   return {
     type: "state", state: "stopped", running: false, paired: false,
-    me: "", meName: "", qr: [], error: "", readReceipts: true, syncing: false
+    me: "", meName: "", qr: [], error: "", readReceipts: true, syncing: false,
+    version: ""
   }
+}
+
+// What is running, for the empty half of the window: this plugin's version and
+// the daemon's. A daemon from before they were shown says nothing, and saying
+// so is the point — that is exactly the daemon whose new commands are missing.
+function versionLine(pluginVersion, state, live) {
+  var app = String(pluginVersion || "").trim()
+  var line = "OmaWhats" + (app !== "" ? " " + app : "")
+  if (!live) return line + " · daemon off"
+  var daemon = state && state.version ? String(state.version).trim() : ""
+  if (daemon === "") return line + " · daemon from an older install"
+  return line + " · daemon " + daemon
 }
 
 function socketPath(env) {
@@ -739,7 +752,7 @@ var SHORTCUTS = [
   { group: "Image viewer", keys: "← / →", action: "Previous / next image in the chat" },
   { group: "Image viewer", keys: "+ / − / wheel", action: "Zoom in / out" },
   { group: "Image viewer", keys: "0 / 1 / double-click", action: "Fit to window / actual size" },
-  { group: "Image viewer", keys: "R", action: "Download the picture again" },
+  { group: "Image viewer", keys: "R", action: "Fetch the picture again (a fresh copy)" },
   { group: "Image viewer", keys: "O", action: "Open in the system image viewer" },
   { group: "Image viewer", keys: "Esc", action: "Back to the chat" },
   { group: "OmaWhats", keys: "Ctrl+Shift+P", action: "Turn OmaWhats on / off" },
@@ -806,6 +819,13 @@ function rateLabel(rate) {
 // Pictures the in-client viewer shows; videos go to the system player.
 function isViewable(media) {
   return !!media && (media.type === "image" || media.type === "sticker" || media.type === "gif")
+}
+
+// Whether a copy of the attachment was downloaded already — which is what
+// makes an ask for it again a forced one.
+function hasCachedFile(media) {
+  if (!media) return false
+  return media.type === "gif" ? !!media.anim : !!media.file
 }
 
 // What the viewer displays: the full file when it is on disk (the converted
