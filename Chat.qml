@@ -3457,12 +3457,27 @@ Item {
 
       // 1 = fitted to the window; up to 8 times that.
       property real zoom: 1
-      // The picture's own size — read from sourceSize, not implicitWidth,
-      // which follows the width set below. A thumbnail stands in for the
-      // real photo at the photo's size, so the preview is not postage-stamp.
-      readonly property real loadedW: root.viewerSrc.animated ? animImg.sourceSize.width : stillImg.sourceSize.width
-      readonly property real loadedH: root.viewerSrc.animated ? animImg.sourceSize.height : stillImg.sourceSize.height
-      readonly property bool useMeta: !root.viewerSrc.full && !!root.viewerMedia && root.viewerMedia.width > 0 && root.viewerMedia.height > 0
+      // The picture's own size, taken from the loaded picture — but read, not
+      // bound to sourceSize: Qt says that size changed only by comparing it
+      // with what the Image held before the new source began loading, so a
+      // picture the same size as the one before it (a phone's photos all
+      // share one size) never announces itself, the binding keeps the zero it
+      // took while loading, and the picture is laid out 0 x 0 — on screen,
+      // nothing at all. See readNatural, called whenever the Image moves.
+      property real loadedW: 0
+      property real loadedH: 0
+      function readNatural() {
+        var img = root.viewerSrc.animated ? animImg : stillImg
+        if (img.status !== Image.Ready) return
+        loadedW = img.sourceSize.width
+        loadedH = img.sourceSize.height
+      }
+      // Until the picture is here, the size the attachment claims stands in
+      // for it: a thumbnail is shown at the real photo's size, so the preview
+      // is not postage-stamp, and a photo on its way is laid out where it
+      // will land instead of flashing to nothing first.
+      readonly property bool useMeta: !!root.viewerMedia && root.viewerMedia.width > 0 && root.viewerMedia.height > 0
+        && (!root.viewerSrc.full || loadedW <= 0 || loadedH <= 0)
       readonly property real naturalW: useMeta ? root.viewerMedia.width : loadedW
       readonly property real naturalH: useMeta ? root.viewerMedia.height : loadedH
       readonly property real fit: Model.fitScale(naturalW, naturalH, viewFlick.width, viewFlick.height)
@@ -3554,6 +3569,12 @@ Item {
             smooth: true
             mipmap: true
             fillMode: Image.PreserveAspectFit
+            // The size is forgotten the moment another picture is asked for,
+            // and read back once that one is here. callLater, because a
+            // picture already in the cache is ready before this returns.
+            onSourceChanged: { viewer.loadedW = 0; viewer.loadedH = 0; Qt.callLater(viewer.readNatural) }
+            onStatusChanged: viewer.readNatural()
+            onSourceSizeChanged: viewer.readNatural()
           }
 
           AnimatedImage {
@@ -3568,6 +3589,9 @@ Item {
             cache: false
             smooth: true
             fillMode: Image.PreserveAspectFit
+            onSourceChanged: { viewer.loadedW = 0; viewer.loadedH = 0; Qt.callLater(viewer.readNatural) }
+            onStatusChanged: viewer.readNatural()
+            onSourceSizeChanged: viewer.readNatural()
           }
         }
 
