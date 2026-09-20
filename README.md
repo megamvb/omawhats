@@ -313,6 +313,14 @@ make install   # binary in ~/.local/bin, plugin files copied into the plugin fol
 instead edit the clone the shell already loads, skip it — but keep the tree
 fast-forwardable, or `omarchy plugin update` will refuse to pull.
 
+Note that the two commands under [Install](#install) are for the other case,
+a copy installed from the repository's URL. A folder that `make install`
+filled is not a git checkout, so `omarchy plugin update` refuses it ("not a
+git checkout"), and it holds only the files the shell loads — no
+`install-daemon`, no `omawhats`, no `daemon/` to build from. On a development
+machine `make install` is the whole update: it builds the daemon, installs
+both commands and copies the plugin files.
+
 Socket protocol (one JSON object per line):
 
 - client → daemon: `hello`, `chats`,
