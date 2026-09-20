@@ -14,7 +14,11 @@
 #   -y, --yes   answer the questions with yes (for scripts)
 #   --mise      build with mise's Go even if the system has its own
 
-set -euo pipefail
+set -euEo pipefail
+
+# Any failure that does not explain itself still says where it stopped: an
+# exit with nothing printed leaves the person with nothing to go on.
+trap 'rc=$?; echo "install-daemon: stopped at line $LINENO (exit $rc)" >&2' ERR
 
 BIN=omawhatsd
 BIN_DIR="${OMAWHATS_BIN_DIR:-$HOME/.local/bin}"
@@ -64,7 +68,10 @@ done
 # ---- Go: the system's, or mise's
 
 # Prints the bare version of the go reached by the given command, or nothing.
-go_version() { "$@" env GOVERSION 2>/dev/null | sed 's/^go//; s/-.*//'; }
+# `|| true` because a go that cannot answer (a mise shim with no version
+# selected, a half-installed toolchain) is one to go around, not to die on:
+# without it, `set -e` ended the script here with nothing printed at all.
+go_version() { "$@" env GOVERSION 2>/dev/null | sed 's/^go//; s/-.*//' || true; }
 
 new_enough() {
   [[ -n ${1:-} ]] || return 1
@@ -83,6 +90,8 @@ if ((${#GO[@]} == 0)); then
     reason="asked for with --mise"
   elif [[ -n $system_version ]]; then
     reason="Go $system_version is here but $GO_MIN or newer is needed"
+  elif have go; then
+    reason="the go in PATH ($(command -v go)) does not answer \`go env GOVERSION\`"
   else
     reason="Go is not installed"
   fi
