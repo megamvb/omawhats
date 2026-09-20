@@ -374,6 +374,21 @@ Item {
     wa.requestMedia(currentChat, id, true)
   }
 
+  // Ask for an attachment again after a download failed, or was never made:
+  // the note saying it was already asked for has to go, or the next scroll
+  // past it would take this for a repeat and drop it.
+  function retryMedia(id) {
+    var idx = indexOfId(id)
+    if (idx < 0) return
+    if (!wa.live) {
+      messages.setProperty(idx, "mediaState", "Turn OmaWhats on to download")
+      return
+    }
+    delete _mediaAsked[id]
+    messages.setProperty(idx, "mediaState", "loading")
+    wa.requestMedia(currentChat, id, false)
+  }
+
   // Anything opened outside the shell would land underneath the full-screen
   // popup, so the popup steps aside first (a window stays). Links go through
   // Omarchy's browser launcher, which also focuses the browser window.
@@ -3483,10 +3498,27 @@ Item {
       readonly property real fit: Model.fitScale(naturalW, naturalH, viewFlick.width, viewFlick.height)
       readonly property real shownW: naturalW * fit * zoom
       readonly property real shownH: naturalH * fit * zoom
-      readonly property bool loading: {
+      // What the row says about the file: "loading" while it is on its way,
+      // "" when all is well, anything else is what went wrong.
+      readonly property string mediaState: {
         var r = root.viewerMediaJson !== "" ? root.viewerRow() : null
-        return !!r && r.mediaState === "loading"
+        return r ? r.mediaState : ""
       }
+      readonly property bool loading: mediaState === "loading"
+      readonly property string failure: loading || mediaState === "sending" ? "" : mediaState
+      readonly property bool empty: root.viewerSrc.source === ""
+      // One line under the picture, or in place of it: what went wrong, or
+      // why there is nothing to look at yet.
+      readonly property string message: {
+        if (failure !== "") return failure
+        if (!empty) return ""
+        if (loading) return "Downloading…"
+        return wa.live ? "This picture has not been downloaded yet"
+                       : "Turn OmaWhats on to see this picture"
+      }
+      // Worth offering another go: it failed, or the full picture is not here
+      // and nothing is fetching it.
+      readonly property bool canRetry: failure !== "" || (!root.viewerSrc.full && !loading)
 
       // Zoom about a point of the view (cx, cy), keeping it under the cursor.
       function zoomTo(z, cx, cy) {
@@ -3523,6 +3555,9 @@ Item {
           else if (k === Qt.Key_Minus || k === Qt.Key_Underscore) viewer.zoomTo(viewer.zoom / 1.25)
           else if (k === Qt.Key_0) viewer.zoomTo(1)
           else if (k === Qt.Key_1) viewer.actualSize()
+          else if (k === Qt.Key_R) {
+            if (viewer.canRetry) root.retryMedia(root.viewerId)
+          }
           else if (k === Qt.Key_O) {
             if (root.viewerSrc.full && root.viewerMedia && root.viewerMedia.file) root.openFile(root.viewerMedia.file)
           }
@@ -3607,14 +3642,46 @@ Item {
         }
       }
 
-      Text {
-        anchors.centerIn: viewFlick
-        visible: root.viewerSrc.source === ""
-        text: wa.live ? "Downloading…" : "Turn OmaWhats on to see this picture"
-        color: "white"
-        opacity: 0.7
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
+      // What is going on with this picture, and a way to ask for it again.
+      // Over the middle while there is nothing to look at; down at the foot
+      // of the window once a preview stands in, so it is not in the way.
+      Row {
+        id: viewerState
+        spacing: Style.space(10)
+        visible: viewer.message !== "" || viewer.canRetry
+        anchors.horizontalCenter: viewFlick.horizontalCenter
+        // Placed by hand rather than re-anchored: an anchor taken away again
+        // does not give the item its old place back.
+        y: viewer.empty ? viewFlick.y + (viewFlick.height - height) / 2
+                        : viewFlick.y + viewFlick.height - height - Style.space(10)
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          visible: viewer.failure !== ""
+          text: Model.GLYPH_WARNING
+          color: Color.urgent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          visible: viewer.message !== ""
+          width: Math.max(0, Math.min(implicitWidth, viewFlick.width - Style.space(180)))
+          text: viewer.message
+          color: "white"
+          opacity: 0.8
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+        }
+        ViewerButton {
+          anchors.verticalCenter: parent.verticalCenter
+          visible: viewer.canRetry
+          enabled: wa.live
+          label: viewer.failure !== "" ? "Try again" : "Download"
+          tip: wa.live ? "Download this picture again (R)" : "Turn OmaWhats on to download"
+          onClicked: root.retryMedia(root.viewerId)
+        }
       }
 
       // ---- top bar

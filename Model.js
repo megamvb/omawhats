@@ -739,6 +739,7 @@ var SHORTCUTS = [
   { group: "Image viewer", keys: "← / →", action: "Previous / next image in the chat" },
   { group: "Image viewer", keys: "+ / − / wheel", action: "Zoom in / out" },
   { group: "Image viewer", keys: "0 / 1 / double-click", action: "Fit to window / actual size" },
+  { group: "Image viewer", keys: "R", action: "Download the picture again" },
   { group: "Image viewer", keys: "O", action: "Open in the system image viewer" },
   { group: "Image viewer", keys: "Esc", action: "Back to the chat" },
   { group: "OmaWhats", keys: "Ctrl+Shift+P", action: "Turn OmaWhats on / off" },

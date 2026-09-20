@@ -159,7 +159,7 @@ Every action has a key. **F1** (or the keyboard button at the top) lists them.
 | 1 … 6, ←/→ Enter, + | In the reaction bar: 👍 ❤️ 😂 😮 😢 🙏, pick with the arrows, or any other emoji |
 | Alt+P | Play / pause the current audio |
 | Alt+S | Audio speed 1× / 1.5× / 2× |
-| ← / →, + / −, 0 / 1, O, Esc | In the image viewer: previous / next, zoom, fit / actual size, open outside, close |
+| ← / →, + / −, 0 / 1, R, O, Esc | In the image viewer: previous / next, zoom, fit / actual size, download again, open outside, close |
 | Ctrl+Shift+P | Turn OmaWhats on / off |
 | Ctrl+R | Refresh; new QR code while linking |
 | Ctrl+Shift+L | Log out (unlink this computer) |
@@ -182,7 +182,8 @@ delivered/read ticks, edited and deleted messages, notifications with an
   to pan, double-click or 0/1 for fit / actual size, ←/→ through the chat's
   pictures, caption and sender shown, O (or the button) opens the system
   image viewer. A picture not downloaded yet shows its thumbnail at full size
-  while the real one is fetched;
+  while the real one is fetched, and a download that fails says so under the
+  picture, with a **Try again** button (R) beside it;
 - animated **GIFs** (WhatsApp sends MP4; the daemon converts it to animated
   WebP with ffmpeg);
 - **videos** as a thumbnail with ▶ and length — a click downloads and opens it
