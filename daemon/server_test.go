@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"net"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -99,5 +100,66 @@ func TestConcurrentWrites(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Fatalf("concurrent write failed: %v", err)
+	}
+}
+
+// The whole way a client marks a chat unread: a line of JSON in, the chat list
+// back out with the mark on it.
+func TestUnreadOverTheWire(t *testing.T) {
+	d := testDaemon(t)
+	d.opts.chatLimit = 50
+	if err := ensureChat(d.ctx, d.db, testChat, false, "Ana"); err != nil {
+		t.Fatal(err)
+	}
+	storeMsg(t, d, "A1", false, "hi")
+	refreshPreview(d.ctx, d.db, testChat)
+
+	sock := filepath.Join(t.TempDir(), "s")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	d.srv = &server{d: d, ln: ln, conns: map[*conn]struct{}{}}
+	go d.srv.serve()
+	go d.chatLoop()
+
+	client, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if _, err := client.Write([]byte(`{"cmd":"unread","chat":"` + testChat + `","on":true}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	client.SetReadDeadline(time.Now().Add(5 * time.Second))
+	r := bufio.NewReader(client)
+	for {
+		line, err := r.ReadBytes('\n')
+		if err != nil {
+			t.Fatalf("no chat list came back: %v", err)
+		}
+		var event struct {
+			Type  string `json:"type"`
+			Chats []struct {
+				JID          string `json:"jid"`
+				Unread       int    `json:"unread"`
+				ManualUnread bool   `json:"manualUnread"`
+			} `json:"chats"`
+		}
+		if err := json.Unmarshal(line, &event); err != nil || event.Type != "chats" {
+			continue
+		}
+		for _, c := range event.Chats {
+			if c.JID != testChat {
+				continue
+			}
+			if !c.ManualUnread || c.Unread != 1 {
+				t.Fatalf("the chat came back as %s", line)
+			}
+			return
+		}
+		t.Fatalf("%s is not in the list: %s", testChat, line)
 	}
 }
