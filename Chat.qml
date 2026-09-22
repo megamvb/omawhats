@@ -260,6 +260,26 @@ Item {
     if (currentChat !== "") wa.togglePin(currentChat)
   }
 
+  // Ctrl+U: flag a chat to come back to. With the keyboard cursor in the chat
+  // list it is that chat, which is never opened — opening one sends the read
+  // receipt the mark is often there to avoid.
+  function markUnreadTarget() {
+    if (search.activeFocus && listIndex < filtered.length) {
+      var c = filtered[listIndex]
+      wa.markUnread(c.jid, !Model.isManualUnread(c))
+      return
+    }
+    markUnreadCurrent()
+  }
+
+  // The open chat is a read one, so marking it unread closes it.
+  function markUnreadCurrent() {
+    if (currentChat === "") return
+    var jid = currentChat
+    closeChat()
+    wa.markUnread(jid, true)
+  }
+
   function moveCurrentPin(delta) {
     if (currentPinned) wa.movePin(currentChat, delta)
   }
@@ -974,6 +994,7 @@ Item {
         else wa.refresh()
         return true
       }
+      if (k === Qt.Key_U && !shift) { markUnreadTarget(); return true }
       if (k === Qt.Key_W && !shift) { closeChat(); return true }
       if (k === Qt.Key_W && shift) { switchMode(); return true }
       if (k === Qt.Key_E && !shift) { openEmojiPicker("composer"); return true }
@@ -1468,6 +1489,7 @@ Item {
               required property var modelData
               required property int index
               readonly property int unreadCount: parseInt(modelData.unread, 10) || 0
+              readonly property bool manualUnread: Model.isManualUnread(modelData)
               width: chatList.width - Style.space(8)
               implicitHeight: rowLayout.implicitHeight + Style.spacing.rowPaddingX
               foreground: root.foreground
@@ -1556,7 +1578,8 @@ Item {
                     Text {
                       id: badgeText
                       anchors.centerIn: parent
-                      text: Model.unreadBadge(chatRow.unreadCount)
+                      // By hand: a dot, since the count behind it means nothing.
+                      text: chatRow.manualUnread ? "" : Model.unreadBadge(chatRow.unreadCount)
                       color: Color.background
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
@@ -1727,6 +1750,15 @@ Item {
               fontFamily: root.fontFamily
               enabled: wa.pins.indexOf(root.currentChat) < wa.pins.length - 1
               onClicked: root.moveCurrentPin(1)
+            }
+
+            PanelActionButton {
+              iconText: Model.GLYPH_MARK_UNREAD
+              tooltipText: "Mark as unread and close (Ctrl+U)"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              enabled: wa.live
+              onClicked: root.markUnreadCurrent()
             }
 
             PanelActionButton {

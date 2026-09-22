@@ -20,6 +20,7 @@ type Request struct {
 	BeforeID string `json:"beforeId"`
 	ID       string `json:"id"`
 	Open     bool   `json:"open"`
+	On       bool   `json:"on"`    // unread: mark it, or take the mark back
 	Force    bool   `json:"force"` // media: the copy here is no good, fetch another
 	Wipe     bool   `json:"wipe"`
 	Quote    string `json:"quote"` // send: the id of the message this answers
@@ -194,6 +195,10 @@ func (d *Daemon) dispatch(c *conn, r Request) {
 		d.srv.setFocus(c, r.Chat)
 		if r.Chat != "" {
 			go d.openChat(r.Chat)
+		}
+	case "unread":
+		if r.Chat != "" {
+			go d.setChatUnread(r.Chat, r.On)
 		}
 	case "send":
 		ok := d.run(func() {

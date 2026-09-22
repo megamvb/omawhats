@@ -264,6 +264,14 @@ Item {
     write({ cmd: "focus", chat: focusChat })
   }
 
+  // Flags a chat to come back to, or takes the flag back. The daemon tells the
+  // phone too, so the mark is the same on every device. Only live: the mark is
+  // the daemon's to keep.
+  function markUnread(chat, on) {
+    if (!live || !chat) return false
+    return write({ cmd: "unread", chat: chat, on: on !== false })
+  }
+
   // Messages older than the cursor (the oldest the client holds); no cursor
   // for the newest page. Live, the daemon pages and, past the local copy, asks
   // the phone. Offline, the stored copy is paged through the CLI.

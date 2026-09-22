@@ -25,6 +25,9 @@ type Chat struct {
 	PreviewFromMe bool   `json:"previewFromMe"`
 	PreviewSender string `json:"previewSender"`
 	Unread        int    `json:"unread"`
+	// Marked unread by hand rather than by a message nobody has read: the
+	// count means nothing then, and the client shows a dot instead.
+	ManualUnread bool `json:"manualUnread,omitempty"`
 }
 
 type Msg struct {
@@ -80,7 +83,8 @@ CREATE TABLE IF NOT EXISTS owa_chat (
 	preview         TEXT NOT NULL DEFAULT '',
 	preview_from_me INTEGER NOT NULL DEFAULT 0,
 	preview_sender  TEXT NOT NULL DEFAULT '',
-	unread          INTEGER NOT NULL DEFAULT 0
+	unread          INTEGER NOT NULL DEFAULT 0,
+	manual_unread   INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS owa_message (
 	chat        TEXT NOT NULL,
@@ -172,35 +176,47 @@ func openDB(readOnly bool) (*sql.DB, error) {
 	return db, nil
 }
 
-// schemaCurrent reports whether the newest column and table exist.
+// schemaCurrent reports whether the newest columns and table exist.
 func schemaCurrent(db *sql.DB) bool {
-	var cols, tables int
-	db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('owa_message') WHERE name = 'quote'`).Scan(&cols)
+	var msgCols, chatCols, tables int
+	db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('owa_message') WHERE name = 'quote'`).Scan(&msgCols)
+	db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('owa_chat') WHERE name = 'manual_unread'`).Scan(&chatCols)
 	db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'owa_reaction'`).Scan(&tables)
-	return cols == 1 && tables == 1
+	return msgCols == 1 && chatCols == 1 && tables == 1
 }
 
 // migrate adds columns introduced after a database was first created.
 func migrate(db *sql.DB) error {
-	have := map[string]bool{}
-	rows, err := db.Query(`SELECT name FROM pragma_table_info('owa_message')`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var name string
-		rows.Scan(&name)
-		have[name] = true
-	}
-	rows.Close()
-	for _, col := range []struct{ name, def string }{
-		{"media", "TEXT NOT NULL DEFAULT ''"},
-		{"media_proto", "BLOB"},
-		{"link", "TEXT NOT NULL DEFAULT ''"},
-		{"quote", "TEXT NOT NULL DEFAULT ''"},
+	for _, t := range []struct {
+		table string
+		cols  []struct{ name, def string }
+	}{
+		{"owa_message", []struct{ name, def string }{
+			{"media", "TEXT NOT NULL DEFAULT ''"},
+			{"media_proto", "BLOB"},
+			{"link", "TEXT NOT NULL DEFAULT ''"},
+			{"quote", "TEXT NOT NULL DEFAULT ''"},
+		}},
+		{"owa_chat", []struct{ name, def string }{
+			{"manual_unread", "INTEGER NOT NULL DEFAULT 0"},
+		}},
 	} {
-		if !have[col.name] {
-			if _, err := db.Exec(`ALTER TABLE owa_message ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
+		have := map[string]bool{}
+		rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, t.table)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var name string
+			rows.Scan(&name)
+			have[name] = true
+		}
+		rows.Close()
+		for _, col := range t.cols {
+			if have[col.name] {
+				continue
+			}
+			if _, err := db.Exec(`ALTER TABLE ` + t.table + ` ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
 				return err
 			}
 		}
@@ -382,12 +398,24 @@ func refreshPreview(ctx context.Context, db execer, chat string) error {
 	return err
 }
 
+// bumpUnread counts one more unread message. A message of its own replaces a
+// hand-made mark, the way it does on the phone: the count starts at that one.
 func bumpUnread(ctx context.Context, db *sql.DB, chat string) {
-	db.ExecContext(ctx, `UPDATE owa_chat SET unread = unread + 1 WHERE jid = ?`, chat)
+	db.ExecContext(ctx, `
+		UPDATE owa_chat SET
+			unread = CASE WHEN manual_unread = 1 THEN 1 ELSE unread + 1 END,
+			manual_unread = 0
+		WHERE jid = ?`, chat)
 }
 
 func setUnread(ctx context.Context, db execer, chat string, n int) {
-	db.ExecContext(ctx, `UPDATE owa_chat SET unread = ? WHERE jid = ?`, n, chat)
+	db.ExecContext(ctx, `UPDATE owa_chat SET unread = ?, manual_unread = 0 WHERE jid = ?`, n, chat)
+}
+
+// markManualUnread flags a chat the reader wants to come back to. The count is
+// only there to make the badge show something; the flag is what it means.
+func markManualUnread(ctx context.Context, db execer, chat string) {
+	db.ExecContext(ctx, `UPDATE owa_chat SET unread = MAX(unread, 1), manual_unread = 1 WHERE jid = ?`, chat)
 }
 
 // markNewestUnread flags the newest n incoming messages of a chat as unread, so
@@ -407,15 +435,15 @@ const chatColumns = `jid,
 		SELECT sender_name FROM owa_message m
 		WHERE m.chat = owa_chat.jid AND m.from_me = 0 AND m.sender_name <> '' AND m.sender_name NOT LIKE '+%'
 		ORDER BY m.ts DESC LIMIT 1), '') END,
-	is_group, last_ts, preview, preview_from_me, preview_sender, unread`
+	is_group, last_ts, preview, preview_from_me, preview_sender, unread, manual_unread`
 
 func scanChat(sc interface{ Scan(...any) error }) (Chat, error) {
 	var c Chat
-	var group, fromMe int
-	if err := sc.Scan(&c.JID, &c.Name, &group, &c.TS, &c.Preview, &fromMe, &c.PreviewSender, &c.Unread); err != nil {
+	var group, fromMe, manual int
+	if err := sc.Scan(&c.JID, &c.Name, &group, &c.TS, &c.Preview, &fromMe, &c.PreviewSender, &c.Unread, &manual); err != nil {
 		return c, err
 	}
-	c.Group, c.PreviewFromMe = group == 1, fromMe == 1
+	c.Group, c.PreviewFromMe, c.ManualUnread = group == 1, fromMe == 1, manual == 1
 	c.Preview = preview(c.Preview)
 	return c, nil
 }
@@ -651,6 +679,31 @@ func markRead(ctx context.Context, db execer, chat string, ids []string) {
 
 func markAllRead(ctx context.Context, db *sql.DB, chat string) {
 	db.ExecContext(ctx, `UPDATE owa_message SET read = 1 WHERE chat = ? AND read = 0`, chat)
+}
+
+// lastMessage is the newest stored message of a chat, as WhatsApp addressed it.
+// App-state patches about a whole chat carry it, so the phone knows how far the
+// change reaches.
+type lastMessage struct {
+	rawChat   string
+	rawSender string
+	id        string
+	fromMe    bool
+	ts        int64
+}
+
+func newestMessage(ctx context.Context, db *sql.DB, chat string) (lastMessage, bool) {
+	var m lastMessage
+	var fromMe int
+	err := db.QueryRowContext(ctx, `
+		SELECT raw_chat, raw_sender, id, from_me, ts FROM owa_message
+		WHERE chat = ? ORDER BY ts DESC, rowid DESC LIMIT 1`, chat).
+		Scan(&m.rawChat, &m.rawSender, &m.id, &fromMe, &m.ts)
+	if err != nil {
+		return m, false
+	}
+	m.fromMe = fromMe == 1
+	return m, true
 }
 
 // devicePaired reads whatsmeow's own table without going through whatsmeow, so

@@ -442,6 +442,7 @@ Panel {
     property var chat: null
     property int rowIndex: 0
     readonly property int unreadCount: chat ? (parseInt(chat.unread, 10) || 0) : 0
+    readonly property bool manualUnread: Model.isManualUnread(chat)
 
     hasCursor: root.cursorActive && root.focusSection === "chats" && root.rowIndex === rowIndex
     foreground: root.foreground
@@ -524,7 +525,8 @@ Panel {
           Text {
             id: countText
             anchors.centerIn: parent
-            text: Model.unreadBadge(chatRow.unreadCount)
+            // By hand: a dot, since the count behind it means nothing.
+            text: chatRow.manualUnread ? "" : Model.unreadBadge(chatRow.unreadCount)
             color: Color.background
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

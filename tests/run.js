@@ -31,6 +31,9 @@ eq("baseName", M.baseName("/run/user/1000/omawhats.sock") + ".pid", "omawhats.so
 eq("totalUnread", M.totalUnread([{ unread: 2 }, { unread: "3" }, { unread: -1 }, {}]), 5)
 eq("badge none", M.unreadBadge(0), "")
 eq("badge big", M.unreadBadge(150), "99+")
+eq("manual unread", M.isManualUnread({ unread: 1, manualUnread: true }), true)
+eq("manual unread off", M.isManualUnread({ unread: 3 }), false)
+eq("manual unread nothing", M.isManualUnread(null), false)
 
 // labels
 eq("phone BR mobile", M.formatPhone("5511987654321"), "+55 11 98765-4321")

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -126,5 +128,113 @@ func TestStoreMessagesBatch(t *testing.T) {
 
 	if n, err := d.storeMessages(testChat, nil); n != 0 || err != nil {
 		t.Errorf("empty batch: %d %v", n, err)
+	}
+}
+
+// listed returns the chat as the clients see it.
+func listed(t *testing.T, d *Daemon) Chat {
+	t.Helper()
+	chats, err := listChats(d.ctx, d.db, 10, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range chats {
+		if c.JID == testChat {
+			return c
+		}
+	}
+	t.Fatalf("%s is not listed", testChat)
+	return Chat{}
+}
+
+// Marking a chat unread by hand is a flag, not a count: a message of its own
+// replaces it with a real count, and reading the chat takes it back.
+func TestManualUnread(t *testing.T) {
+	d := testDaemon(t)
+	if err := ensureChat(d.ctx, d.db, testChat, false, "Ana"); err != nil {
+		t.Fatal(err)
+	}
+	storeMsg(t, d, "A1", false, "hi")
+	refreshPreview(d.ctx, d.db, testChat)
+	markRead(d.ctx, d.db, testChat, []string{"A1"})
+
+	d.setChatUnread(testChat, true)
+	if c := listed(t, d); !c.ManualUnread || c.Unread != 1 {
+		t.Errorf("after marking unread: manual=%v unread=%d, want true 1", c.ManualUnread, c.Unread)
+	}
+	if n := unreadCount(t, d, testChat); n != 0 {
+		t.Errorf("the mark flagged %d messages unread; it must send no receipt later", n)
+	}
+
+	// A message nobody has read is a real one: the flag goes, the count is its.
+	bumpUnread(d.ctx, d.db, testChat)
+	if c := listed(t, d); c.ManualUnread || c.Unread != 1 {
+		t.Errorf("after a new message: manual=%v unread=%d, want false 1", c.ManualUnread, c.Unread)
+	}
+	bumpUnread(d.ctx, d.db, testChat)
+	if c := listed(t, d); c.Unread != 2 {
+		t.Errorf("second new message: unread=%d, want 2", c.Unread)
+	}
+
+	d.setChatUnread(testChat, false)
+	if c := listed(t, d); c.ManualUnread || c.Unread != 0 {
+		t.Errorf("after reading: manual=%v unread=%d, want false 0", c.ManualUnread, c.Unread)
+	}
+}
+
+// A database written before the mark existed gains the column and lists.
+func TestOldDatabaseGainsManualUnread(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OMAWHATS_DATA", dir)
+	old, err := sql.Open("sqlite", "file:"+dbPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`CREATE TABLE owa_chat (jid TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', is_group INTEGER NOT NULL DEFAULT 0,
+			last_ts INTEGER NOT NULL DEFAULT 0, preview TEXT NOT NULL DEFAULT '', preview_from_me INTEGER NOT NULL DEFAULT 0,
+			preview_sender TEXT NOT NULL DEFAULT '', unread INTEGER NOT NULL DEFAULT 0)`,
+		`INSERT INTO owa_chat (jid, name, last_ts, preview, unread) VALUES ('c', 'Ana', 10, 'hi', 3)`,
+	} {
+		if _, err := old.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old.Close()
+
+	db, err := openDB(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	chats, err := listChats(context.Background(), db, 10, nil)
+	if err != nil || len(chats) != 1 {
+		t.Fatalf("listing an upgraded database: %+v %v", chats, err)
+	}
+	if chats[0].Unread != 3 || chats[0].ManualUnread {
+		t.Errorf("upgraded chat: unread=%d manual=%v, want 3 false", chats[0].Unread, chats[0].ManualUnread)
+	}
+}
+
+// The command a client sends reaches the flag; nothing else answers it.
+func TestDispatchUnread(t *testing.T) {
+	d := testDaemon(t)
+	d.srv = &server{d: d, conns: map[*conn]struct{}{}}
+	if err := ensureChat(d.ctx, d.db, testChat, false, "Ana"); err != nil {
+		t.Fatal(err)
+	}
+	storeMsg(t, d, "A1", false, "hi")
+	refreshPreview(d.ctx, d.db, testChat)
+
+	d.dispatch(&conn{}, Request{Cmd: "unread", Chat: testChat, On: true})
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if listed(t, d).ManualUnread {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the unread command never reached the chat")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

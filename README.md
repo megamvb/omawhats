@@ -144,6 +144,7 @@ Every action has a key. **F1** (or the keyboard button at the top) lists them.
 | Alt+1 … Alt+9 | Open pinned chat 1–9 |
 | Ctrl+N | New chat with a phone number |
 | Ctrl+P | Pin / unpin the open chat |
+| Ctrl+U | Mark as unread: the chat under the cursor in the list, or the open one (which closes) |
 | Alt+Shift+↑ / ↓ | Move the pinned chat up / down |
 | Ctrl+W | Close the open chat |
 | Enter | Send |
@@ -167,13 +168,18 @@ Every action has a key. **F1** (or the keyboard button at the top) lists them.
 | F1 / Ctrl+/ | Show the shortcuts |
 | Esc | Close a dialog, clear the search, or close the popup |
 
-With the mouse: right-click a chat in the list to pin or unpin it; point at a
+A chat marked unread keeps a dot in the list — here, on the phone and on
+every other linked device — until a message arrives or it is read again.
+
+With the mouse: right-click a chat in the list to pin or unpin it; the envelope
+button at the top of a chat marks it unread and closes it; point at a
 message for its react and reply buttons; click a reaction to add the same one
 (or take yours back); click a quote to scroll to the message it answers.
 
 ## What it does
 
-Text (send and receive), chats and groups, unread counts, read receipts,
+Text (send and receive), chats and groups, unread counts, marking a chat
+unread (synced to the phone), read receipts,
 delivered/read ticks, edited and deleted messages, notifications with an
 "Open" button, and in the client:
 
@@ -331,11 +337,14 @@ Socket protocol (one JSON object per line):
 
 - client → daemon: `hello`, `chats`,
   `history {chat, limit, before, beforeId, noAsk}`, `focus {chat}`,
+  `unread {chat, on}` (on: mark the chat unread, off: read it without opening
+  it; the daemon syncs the mark to the phone),
   `send {chat, text, quote, req}` (quote: the id of the message answered),
   `sendfile {chat, path, text, quote, asDocument, req}` (an absolute path;
   text is the caption; files are sent one at a time, in order),
   `react {chat, id, emoji, req}` (empty emoji takes it back),
-  `media {chat, id, open, req}`,
+  `media {chat, id, open, force, req}` (force: the copy here is no good,
+  fetch another under a new name),
   `check {text, req}`, `pair`, `logout {wipe, req}`, `quit`, `ping`
 - daemon → client: `state`, `chats`, `history {…, more, asked, end, offline}`,
   `older {chat, count, end, timeout}`, `message` (with `quote` and

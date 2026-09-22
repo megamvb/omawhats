@@ -19,6 +19,8 @@ var GLYPH_SEARCH = "\u{f0349}"
 var GLYPH_PIN = "\u{f0403}"
 var GLYPH_UNPIN = "\u{f0404}"
 var GLYPH_NEW_CHAT = "\u{f0653}"
+var GLYPH_MARK_UNREAD = "\u{f01ee}"
+var GLYPH_MARK_READ = "\u{f01ef}"
 var GLYPH_KEYBOARD = "\u{f030c}"
 var GLYPH_CLOSE = "\u{f0156}"
 var GLYPH_UP = "\u{f005d}"
@@ -111,6 +113,12 @@ function totalUnread(chats) {
 function unreadBadge(n) {
   if (!n || n <= 0) return ""
   return n > 99 ? "99+" : String(n)
+}
+
+// Marked unread by hand: the badge is a dot, because the count behind it was
+// made up to keep the chat looking unread.
+function isManualUnread(chat) {
+  return !!chat && chat.manualUnread === true
 }
 
 function formatPhone(me) {
@@ -723,6 +731,7 @@ var SHORTCUTS = [
   { group: "Chats", keys: "Ctrl+N", action: "New chat with a phone number" },
   { group: "Chats", keys: "Ctrl+P", action: "Pin / unpin the open chat" },
   { group: "Chats", keys: "Alt+Shift+↑ / ↓", action: "Move the pinned chat up / down" },
+  { group: "Chats", keys: "Ctrl+U", action: "Mark as unread: the chat under the cursor, or the open one" },
   { group: "Chats", keys: "Ctrl+W", action: "Close the open chat" },
   { group: "Messages", keys: "Enter", action: "Send" },
   { group: "Messages", keys: "Ctrl+E", action: "Emoji picker" },

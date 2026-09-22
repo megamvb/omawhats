@@ -13,6 +13,8 @@ import (
 
 	qrcode "github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -449,12 +451,15 @@ func (d *Daemon) onEvent(raw any) {
 	case *events.Contact, *events.PushName:
 		d.markChatsDirty()
 	case *events.MarkChatAsRead:
+		chat := d.canonical(evt.JID, types.EmptyJID).String()
 		if evt.Action.GetRead() {
-			chat := d.canonical(evt.JID, types.EmptyJID).String()
 			setUnread(d.ctx, d.db, chat, 0)
 			markAllRead(d.ctx, d.db, chat)
-			d.markChatsDirty()
+		} else {
+			// Marked unread on the phone or another linked device.
+			markManualUnread(d.ctx, d.db, chat)
 		}
+		d.markChatsDirty()
 	}
 }
 
@@ -954,6 +959,50 @@ func (d *Daemon) openChat(chat string) {
 	setUnread(d.ctx, d.db, chat, 0)
 	d.sendReceipts(chat)
 	d.markChatsDirty()
+}
+
+// setChatUnread is the "unread" command: the reader flags a chat to come back
+// to, or takes the flag back. The phone and the other linked devices hear about
+// it too, so the mark is the same everywhere.
+func (d *Daemon) setChatUnread(chat string, on bool) {
+	if on {
+		markManualUnread(d.ctx, d.db, chat)
+	} else {
+		setUnread(d.ctx, d.db, chat, 0)
+		d.sendReceipts(chat)
+	}
+	d.markChatsDirty()
+	d.syncChatRead(chat, !on)
+}
+
+// syncChatRead sends the app-state patch behind "mark as read / unread". The
+// mark here does not depend on it: it gives up quietly while the daemon is
+// offline, or if the account has no app-state keys to sign the patch with.
+func (d *Daemon) syncChatRead(chat string, read bool) {
+	cli := d.client()
+	if cli == nil || !cli.IsLoggedIn() || !cli.IsConnected() {
+		return
+	}
+	target, ts := chat, time.Now()
+	var key *waCommon.MessageKey
+	if m, ok := newestMessage(d.ctx, d.db, chat); ok {
+		target, ts = m.rawChat, time.Unix(m.ts, 0)
+		key = &waCommon.MessageKey{
+			RemoteJID: proto.String(m.rawChat),
+			FromMe:    proto.Bool(m.fromMe),
+			ID:        proto.String(m.id),
+		}
+		if !m.fromMe && m.rawSender != "" && m.rawSender != m.rawChat {
+			key.Participant = proto.String(m.rawSender)
+		}
+	}
+	jid, err := types.ParseJID(target)
+	if err != nil {
+		return
+	}
+	if err := cli.SendAppState(d.ctx, appstate.BuildMarkChatAsRead(jid, read, ts, key)); err != nil {
+		log.Printf("mark %s read=%v: %v", chat, read, err)
+	}
 }
 
 func (d *Daemon) sendReceipts(chat string) {
