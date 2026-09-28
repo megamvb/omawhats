@@ -120,6 +120,10 @@ Remote: `https://github.com/megamvb/omawhats.git`, branch `main`.
   ("Function not found"): `omarchy restart shell`.
 - whatsmeow's `Store.Contacts`/`LIDs` are nil on an unpaired device — guard with
   `storeReady()` or the daemon panics.
+- `describe()` (`daemon/text.go`) must **never** return an empty text for a
+  message a person sent: an unknown kind becomes "❔ Unsupported: …" and the log
+  says which field it was. A dropped message is invisible and looks exactly like
+  the client being out of sync — that was real, missed calls among others.
 - A media download refused with 403/404/410 is returned by whatsmeow without
   trying another host: the phone is the only place left to ask
   (`SendMediaRetryReceipt`). 403 means the stored address is simply too old.
