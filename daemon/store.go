@@ -354,6 +354,39 @@ func setChatName(ctx context.Context, db *sql.DB, jid, name string) {
 	db.ExecContext(ctx, `UPDATE owa_chat SET name = ? WHERE jid = ? AND name <> ?`, name, jid, name)
 }
 
+// waitingKind marks the row that stands in for a message that arrived but
+// could not be read. It is the one kind a later copy of the same message is
+// allowed to overwrite, and the text is what WhatsApp itself says in that spot.
+const waitingKind = "waiting"
+
+const waitingText = "🔒 Waiting for this message"
+
+// replaceWaiting puts a message over the placeholder that was left for it, and
+// reports whether there was one. An ordinary duplicate is never touched: the
+// stored copy may have been edited or had its media filled in since, and a
+// history chunk re-delivering the original would undo that.
+func replaceWaiting(ctx context.Context, db execer, m *Msg) (bool, error) {
+	media, link, quote := jsonOrEmpty(m.Media), jsonOrEmpty(m.Link), jsonOrEmpty(m.Quote)
+	var raw any
+	if len(m.mediaRaw) > 0 {
+		raw = m.mediaRaw
+	}
+	// read is left as it was: the placeholder already counted towards the badge.
+	res, err := db.ExecContext(ctx, `
+		UPDATE owa_message SET
+			raw_chat = ?, sender = ?, raw_sender = ?, sender_name = ?, from_me = ?, ts = ?,
+			text = ?, kind = ?, status = ?, edited = ?, media = ?, media_proto = ?, link = ?, quote = ?
+		WHERE chat = ? AND id = ? AND kind = ?`,
+		m.rawChat, m.Sender, m.rawSender, m.SenderName, b2i(m.FromMe), m.TS,
+		m.Text, m.Kind, m.Status, b2i(m.Edited), media, raw, link, quote,
+		m.Chat, m.ID, waitingKind)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // insertMessage returns false when the message was already stored (history
 // sync and live delivery overlap).
 func insertMessage(ctx context.Context, db execer, m *Msg, read bool) (bool, error) {

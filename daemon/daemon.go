@@ -212,6 +212,10 @@ func (d *Daemon) startClient() error {
 	cli := whatsmeow.NewClient(device, d.waLog)
 	cli.EnableAutoReconnect = true
 	cli.InitialAutoReconnect = true
+	// A message that cannot be decrypted is first re-requested from whoever sent
+	// it; five seconds later, with this on, the phone is asked for it too. It is
+	// the only way a message lost to a broken session ever arrives.
+	cli.AutomaticMessageRerequestFromPhone = true
 	cli.AddEventHandler(d.onEvent)
 
 	d.mu.Lock()
@@ -434,6 +438,8 @@ func (d *Daemon) onEvent(raw any) {
 		d.setState(func(s *State) { s.MeName = evt.Action.GetName() })
 	case *events.Message:
 		d.handleMessage(evt, true)
+	case *events.UndecryptableMessage:
+		d.handleUndecryptable(evt)
 	case *events.HistorySync:
 		d.handleHistory(evt)
 	case *events.Receipt:
@@ -739,8 +745,17 @@ func (d *Daemon) handleMessage(evt *events.Message, live bool) {
 		log.Printf("store message: %v", err)
 		return
 	}
+	// Already stored, except when what is stored is only the placeholder left
+	// for a message that could not be read: this is the content arriving.
+	replaced := false
 	if !inserted {
-		return
+		if replaced, err = replaceWaiting(d.ctx, d.db, m); err != nil {
+			log.Printf("replace waiting message: %v", err)
+			return
+		}
+		if !replaced {
+			return
+		}
 	}
 	refreshPreview(d.ctx, d.db, m.Chat)
 	if live {
@@ -752,7 +767,10 @@ func (d *Daemon) handleMessage(evt *events.Message, live bool) {
 		case focused:
 			d.sendReceipts(m.Chat)
 		default:
-			bumpUnread(d.ctx, d.db, m.Chat)
+			if !replaced {
+				// The placeholder already counted towards the badge.
+				bumpUnread(d.ctx, d.db, m.Chat)
+			}
 			if d.opts.notify {
 				title := name
 				if title == "" {
@@ -765,8 +783,70 @@ func (d *Daemon) handleMessage(evt *events.Message, live bool) {
 				go notify(m.Chat, title, body)
 			}
 		}
-		d.srv.broadcast(map[string]any{"type": "message", "chat": m.Chat, "message": m})
+		d.srv.broadcast(map[string]any{"type": "message", "chat": m.Chat, "message": m, "update": replaced})
 	}
+	d.markChatsDirty()
+}
+
+// handleUndecryptable leaves a line where a message this computer could not
+// read arrived. whatsmeow asks the sender to send it again and, a few seconds
+// later, asks the phone as well; either answer comes back as an ordinary
+// message and takes this row's place. Without the row the chat would simply be
+// missing a message the phone shows, which is indistinguishable from the client
+// being out of sync — and nothing would ever come back to fix it.
+func (d *Daemon) handleUndecryptable(evt *events.UndecryptableMessage) {
+	if evt.UnavailableType != "" || evt.DecryptFailMode == events.DecryptFailHide {
+		// Meant to be unavailable (a view-once already seen, say): not a hole.
+		return
+	}
+	info := evt.Info
+	if skipChat(info.Chat) {
+		return
+	}
+	chat := d.chatOf(info)
+	sender := d.canonical(info.Sender, info.SenderAlt)
+	senderName := "You"
+	name := ""
+	if !info.IsFromMe {
+		senderName = d.displayName(sender, info.PushName)
+	}
+	if info.IsGroup {
+		name = d.groupName(info.Chat.ToNonAD())
+	} else if !info.IsFromMe {
+		name = senderName
+	}
+	if err := ensureChat(d.ctx, d.db, chat.String(), info.IsGroup, name); err != nil {
+		log.Printf("chat %s: %v", chat, err)
+		return
+	}
+	m := &Msg{
+		Chat:       chat.String(),
+		ID:         info.ID,
+		Sender:     sender.String(),
+		SenderName: senderName,
+		FromMe:     info.IsFromMe,
+		TS:         info.Timestamp.Unix(),
+		Text:       waitingText,
+		Kind:       waitingKind,
+		rawChat:    info.Chat.ToNonAD().String(),
+		rawSender:  info.Sender.ToNonAD().String(),
+	}
+	focused := d.srv.focused(m.Chat)
+	inserted, err := insertMessage(d.ctx, d.db, m, m.FromMe || focused)
+	if err != nil {
+		log.Printf("store undecryptable message: %v", err)
+		return
+	}
+	if !inserted {
+		// Same message failing again; the row is already there.
+		return
+	}
+	log.Printf("could not read a message in %s (%s); asked for it again", m.Chat, m.ID)
+	refreshPreview(d.ctx, d.db, m.Chat)
+	if !m.FromMe && !focused {
+		bumpUnread(d.ctx, d.db, m.Chat)
+	}
+	d.srv.broadcast(map[string]any{"type": "message", "chat": m.Chat, "message": m})
 	d.markChatsDirty()
 }
 

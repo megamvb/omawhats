@@ -258,6 +258,13 @@ messages, stickers, mentions, status, calls. Messages
 stored before version 0.2 have no media pointer and still show only as
 "📷 Photo".
 
+A kind of message this client cannot draw is still a line in the conversation —
+"❔ Unsupported: order", say — never a silent hole, because a missing message
+looks exactly like the client being out of sync. The same goes for a message
+that arrived but could not be decrypted: it holds a "🔒 Waiting for this
+message" line while the sender and then your phone are asked to send it again,
+and the line becomes the message when one of them answers.
+
 ## Files
 
 | What | Where |
