@@ -120,6 +120,12 @@ Remote: `https://github.com/megamvb/omawhats.git`, branch `main`.
   ("Function not found"): `omarchy restart shell`.
 - whatsmeow's `Store.Contacts`/`LIDs` are nil on an unpaired device — guard with
   `storeReady()` or the daemon panics.
+- An **on-demand history request must name the chat by the address the chat is
+  keyed under** (`owa_chat.jid`), not by a message's `raw_chat`: since the LID
+  migration a recent message in a one-to-one chat carries the sender's `@lid`
+  address there, and a request naming that is never answered — no error, just
+  silence until the 45 s timeout. Groups hid the bug, their address is the same
+  either way. Both callers go through `historyAnchor`.
 - `describe()` (`daemon/text.go`) must **never** return an empty text for a
   message a person sent: an unknown kind becomes "❔ Unsupported: …" and the log
   says which field it was. A dropped message is invisible and looks exactly like

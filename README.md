@@ -145,6 +145,7 @@ Every action has a key. **F1** (or the keyboard button at the top) lists them.
 | Ctrl+N | New chat with a phone number |
 | Ctrl+P | Pin / unpin the open chat |
 | Ctrl+U | Mark as unread: the chat under the cursor in the list, or the open one (which closes) |
+| Ctrl+Shift+R | Refresh from your phone: the chat under the cursor, or the open one |
 | Alt+Shift+↑ / ↓ | Move the pinned chat up / down |
 | Ctrl+W | Close the open chat |
 | Enter | Send |
@@ -239,6 +240,14 @@ delivered/read ticks, edited and deleted messages, notifications with an
   of 80 from the local copy, and past that asks your phone for more (the
   phone has to be online). The top of the conversation says what is happening
   ("Fetching older messages from your phone…", "No older messages", …);
+- **refreshing one chat** (the ⟳ button at the top of a conversation, or
+  Ctrl+Shift+R): asks your phone for the messages around the newest one stored
+  here and fills in whatever this computer missed — what arrived while the
+  daemon was off, or a message that could not be read. It says what it found
+  ("3 messages were missing — they are here now", "Nothing was missing here").
+  WhatsApp only answers "the messages before this one", so a message *newer*
+  than everything stored here cannot be asked for; it arrives with the next one
+  that comes in, and a refresh then fills the gap;
 - **pinned chats** — local to this computer, in the order you choose, kept in
   `~/.local/share/omawhats/pins.json`;
 - **new chat** with any number: Ctrl+N (or the button next to the search),
@@ -346,6 +355,7 @@ Socket protocol (one JSON object per line):
   `history {chat, limit, before, beforeId, noAsk}`, `focus {chat}`,
   `unread {chat, on}` (on: mark the chat unread, off: read it without opening
   it; the daemon syncs the mark to the phone),
+  `resync {chat}` (ask the phone to fill in what is missing in one chat),
   `send {chat, text, quote, req}` (quote: the id of the message answered),
   `sendfile {chat, path, text, quote, asDocument, req}` (an absolute path;
   text is the caption; files are sent one at a time, in order),
@@ -354,7 +364,8 @@ Socket protocol (one JSON object per line):
   fetch another under a new name),
   `check {text, req}`, `pair`, `logout {wipe, req}`, `quit`, `ping`
 - daemon → client: `state`, `chats`, `history {…, more, asked, end, offline}`,
-  `older {chat, count, end, timeout}`, `message` (with `quote` and
+  `older {chat, count, end, timeout}`, `resynced {chat, count, timeout, offline}`,
+  `message` (with `quote` and
   `reactions` when it has them, and `req` when it is the copy of one this
   client just sent), `status`, `sent`, `reacted {req, id, ok, error}`, `media`,
   `check {req, ok, jid, name, error}`, `loggedout {ok, error}`, `error`, `bye`

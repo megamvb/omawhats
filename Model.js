@@ -587,6 +587,16 @@ function movePin(pins, jid, delta) {
 // What the top of the conversation says, given how paging stands.
 //   phase: "idle" | "local" (reading the local copy) | "phone" (waiting for
 //   the phone) | "end" | "timeout" | "offline-end"
+// What the refresh button says when the phone has answered. A count is the
+// number of messages this computer was missing and now has.
+function resyncNote(count, timedOut, offline) {
+  if (offline) return "Turn OmaWhats on to refresh this chat"
+  if (timedOut) return "Your phone did not answer"
+  if (count === 1) return "1 message was missing — it is here now"
+  if (count > 1) return count + " messages were missing — they are here now"
+  return "Nothing was missing here"
+}
+
 function historyHeader(phase) {
   switch (phase) {
   case "local": return "Loading older messages…"
@@ -732,6 +742,7 @@ var SHORTCUTS = [
   { group: "Chats", keys: "Ctrl+P", action: "Pin / unpin the open chat" },
   { group: "Chats", keys: "Alt+Shift+↑ / ↓", action: "Move the pinned chat up / down" },
   { group: "Chats", keys: "Ctrl+U", action: "Mark as unread: the chat under the cursor, or the open one" },
+  { group: "Chats", keys: "Ctrl+Shift+R", action: "Refresh a chat from your phone: the one under the cursor, or the open one" },
   { group: "Chats", keys: "Ctrl+W", action: "Close the open chat" },
   { group: "Messages", keys: "Enter", action: "Send" },
   { group: "Messages", keys: "Ctrl+E", action: "Emoji picker" },

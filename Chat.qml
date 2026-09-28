@@ -280,6 +280,25 @@ Item {
     wa.markUnread(jid, true)
   }
 
+  // ---- refreshing a chat from the phone
+  //
+  // For when this computer and WhatsApp disagree: whatever the daemon missed
+  // while it was off (or could not read) is asked for again. The chat under the
+  // cursor in the list, or the open one.
+  function resyncTarget() {
+    if (search.activeFocus && listIndex < filtered.length) {
+      resyncOne(filtered[listIndex].jid)
+      return
+    }
+    resyncOne(currentChat)
+  }
+
+  function resyncOne(jid) {
+    if (jid === "") return
+    if (!wa.live) { showToast("Turn OmaWhats on to refresh this chat"); return }
+    if (wa.resyncChat(jid)) showToast("Asking your phone about this chat…")
+  }
+
   function moveCurrentPin(delta) {
     if (currentPinned) wa.movePin(currentChat, delta)
   }
@@ -994,6 +1013,7 @@ Item {
         else wa.refresh()
         return true
       }
+      if (k === Qt.Key_R && shift) { resyncTarget(); return true }
       if (k === Qt.Key_U && !shift) { markUnreadTarget(); return true }
       if (k === Qt.Key_W && !shift) { closeChat(); return true }
       if (k === Qt.Key_W && shift) { switchMode(); return true }
@@ -1086,6 +1106,17 @@ Item {
         root.loadOlder(true)
       } else {
         root.historyPhase = "end"
+      }
+    }
+
+    onResynced: function(chat, count, timedOut, offline) {
+      root.showToast(Model.resyncNote(count, timedOut, offline))
+      // The messages that were missing sit below the ones on screen, so the
+      // conversation is read again from the newest page.
+      if (count > 0 && chat === root.currentChat) {
+        root._phoneEnd = false
+        root.historyPhase = "local"
+        wa.requestHistory(chat, 0, "", true)
       }
     }
 
@@ -1750,6 +1781,15 @@ Item {
               fontFamily: root.fontFamily
               enabled: wa.pins.indexOf(root.currentChat) < wa.pins.length - 1
               onClicked: root.moveCurrentPin(1)
+            }
+
+            PanelActionButton {
+              iconText: Model.GLYPH_REFRESH
+              tooltipText: "Refresh this chat from your phone (Ctrl+Shift+R)"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              enabled: wa.live
+              onClicked: root.resyncOne(root.currentChat)
             }
 
             PanelActionButton {

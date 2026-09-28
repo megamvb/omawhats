@@ -76,23 +76,27 @@ type Daemon struct {
 	olderMu      sync.Mutex
 	olderPending map[string]*time.Timer
 	olderDone    map[string]bool
+	// Chats waiting for an answer to the refresh button, which asks the same
+	// way but from the newest message instead of the oldest.
+	resyncPending map[string]*time.Timer
 
 	loggingOut bool // guarded by mu; a deliberate logout is not "unlinked by the phone"
 }
 
 func newDaemon(ctx context.Context, cancel context.CancelFunc, db *sql.DB, opts options) (*Daemon, error) {
 	d := &Daemon{
-		ctx:          ctx,
-		cancel:       cancel,
-		opts:         opts,
-		db:           db,
-		waLog:        waLog.Stdout("whatsmeow", "WARN", false),
-		chatsDirty:   make(chan struct{}, 1),
-		work:         make(chan struct{}, 32),
-		outbox:       make(chan outgoing, 256),
-		olderPending: map[string]*time.Timer{},
-		olderDone:    map[string]bool{},
-		state:        State{Type: "state", State: "starting", Running: true, QR: []string{}, ReadReceipts: opts.readReceipts, Version: version},
+		ctx:           ctx,
+		cancel:        cancel,
+		opts:          opts,
+		db:            db,
+		waLog:         waLog.Stdout("whatsmeow", "WARN", false),
+		chatsDirty:    make(chan struct{}, 1),
+		work:          make(chan struct{}, 32),
+		outbox:        make(chan outgoing, 256),
+		olderPending:  map[string]*time.Timer{},
+		olderDone:     map[string]bool{},
+		resyncPending: map[string]*time.Timer{},
+		state:         State{Type: "state", State: "starting", Running: true, QR: []string{}, ReadReceipts: opts.readReceipts, Version: version},
 	}
 	d.dl = newDownloader(d)
 	d.container = sqlstore.NewWithDB(db, "sqlite3", waLog.Stdout("store", "WARN", false))
@@ -948,6 +952,10 @@ func (d *Daemon) handleHistory(evt *events.HistorySync) {
 		if onDemand {
 			// Older messages only: the unread count is not the phone's to reset here.
 			noMore := conv.GetEndOfHistoryTransferType() == waHistorySync.Conversation_COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY
+			if d.finishResync(chat.String(), inserted, len(conv.GetMessages()), false) {
+				answered++
+				continue
+			}
 			if d.finishOlder(chat.String(), inserted, noMore, false) {
 				answered++
 			}
@@ -964,15 +972,21 @@ func (d *Daemon) handleHistory(evt *events.HistorySync) {
 		// can only be that one's, and it means there is nothing older.
 		if answered == 0 {
 			d.olderMu.Lock()
-			var only string
-			if len(d.olderPending) == 1 {
+			var onlyOlder, onlyResync string
+			if len(d.olderPending)+len(d.resyncPending) == 1 {
 				for chat := range d.olderPending {
-					only = chat
+					onlyOlder = chat
+				}
+				for chat := range d.resyncPending {
+					onlyResync = chat
 				}
 			}
 			d.olderMu.Unlock()
-			if only != "" {
-				d.finishOlder(only, 0, true, false)
+			switch {
+			case onlyResync != "":
+				d.finishResync(onlyResync, 0, 0, false)
+			case onlyOlder != "":
+				d.finishOlder(onlyOlder, 0, true, false)
 			}
 		}
 		return
@@ -1292,6 +1306,24 @@ func (d *Daemon) react(chat, id, emoji string) error {
 
 // ---- older messages, from the phone
 
+// historyAnchor is the message an on-demand history request counts back from.
+// The chat has to be named the way the phone keeps it — a person's number, a
+// group's own address — and that is exactly the address this client keys the
+// chat under. The messages in it say otherwise: a recent one carries the
+// sender's @lid address in raw_chat, and a request naming that is never
+// answered at all, which is why both callers ask for it here.
+func historyAnchor(chat, id string, fromMe bool, ts int64) (*types.MessageInfo, error) {
+	jid, err := types.ParseJID(chat)
+	if err != nil {
+		return nil, err
+	}
+	return &types.MessageInfo{
+		MessageSource: types.MessageSource{Chat: jid, IsFromMe: fromMe, IsGroup: jid.Server == types.GroupServer},
+		ID:            id,
+		Timestamp:     time.Unix(ts, 0),
+	}, nil
+}
+
 // requestOlder asks the phone for the messages before the oldest one stored
 // for chat. It returns false when there is no point asking (offline, nothing
 // stored to anchor on, or the phone already said there is nothing more) —
@@ -1314,18 +1346,13 @@ func (d *Daemon) requestOlder(chat string) (asked, unreachable bool) {
 	}
 	d.olderMu.Unlock()
 
-	rawChat, id, fromMe, ts, err := oldestMessage(d.ctx, d.db, chat)
+	_, id, fromMe, ts, err := oldestMessage(d.ctx, d.db, chat)
 	if err != nil {
 		return false, false
 	}
-	rc, err := types.ParseJID(rawChat)
+	info, err := historyAnchor(chat, id, fromMe, ts)
 	if err != nil {
 		return false, false
-	}
-	info := &types.MessageInfo{
-		MessageSource: types.MessageSource{Chat: rc, IsFromMe: fromMe, IsGroup: rc.Server == types.GroupServer},
-		ID:            id,
-		Timestamp:     time.Unix(ts, 0),
 	}
 	ctx, cancel := context.WithTimeout(d.ctx, 20*time.Second)
 	defer cancel()
@@ -1338,6 +1365,103 @@ func (d *Daemon) requestOlder(chat string) (asked, unreachable bool) {
 	d.olderPending[chat] = time.AfterFunc(45*time.Second, func() { d.finishOlder(chat, 0, false, true) })
 	d.olderMu.Unlock()
 	return true, false
+}
+
+// ---- refreshing one chat
+
+// resyncChat is what the refresh button does: it asks the phone for the
+// messages before the newest one this computer has, which is where a gap left
+// by a daemon that was off, or by a message that never made it, sits. The only
+// request WhatsApp has is "the messages before this one", so a gap *above* the
+// newest message cannot be asked for — it closes itself as soon as one new
+// message arrives and becomes the anchor. The chat's name is re-read on the way,
+// since that is the other thing about a chat that goes stale here.
+func (d *Daemon) resyncChat(chat string) {
+	cli := d.client()
+	if cli == nil || !cli.IsLoggedIn() || !cli.IsConnected() {
+		d.srv.broadcast(map[string]any{"type": "resynced", "chat": chat, "count": 0, "offline": true})
+		return
+	}
+	d.refreshChatName(cli, chat)
+	d.markChatsDirty()
+
+	m, ok := newestMessage(d.ctx, d.db, chat)
+	if !ok {
+		// Nothing stored to anchor on, and there is no request for "the newest
+		// messages" — the first ones have to arrive on their own.
+		d.srv.broadcast(map[string]any{"type": "resynced", "chat": chat, "count": 0})
+		return
+	}
+	info, err := historyAnchor(chat, m.id, m.fromMe, m.ts)
+	if err != nil {
+		return
+	}
+	d.olderMu.Lock()
+	if _, pending := d.resyncPending[chat]; pending {
+		d.olderMu.Unlock()
+		return
+	}
+	// Whatever the phone said before about having nothing older was about an
+	// older anchor; let paging ask again after this.
+	delete(d.olderDone, chat)
+	d.resyncPending[chat] = time.AfterFunc(45*time.Second, func() { d.finishResync(chat, 0, 0, true) })
+	d.olderMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(d.ctx, 20*time.Second)
+	defer cancel()
+	if _, err := cli.SendPeerMessage(ctx, cli.BuildHistorySyncRequest(info, 50)); err != nil {
+		log.Printf("refresh %s: %v", chat, err)
+		d.olderMu.Lock()
+		if t, pending := d.resyncPending[chat]; pending {
+			t.Stop()
+			delete(d.resyncPending, chat)
+		}
+		d.olderMu.Unlock()
+		d.srv.broadcast(map[string]any{"type": "resynced", "chat": chat, "count": 0, "offline": true})
+		return
+	}
+	log.Printf("refresh %s: asked the phone about the 50 messages before %s", chat, m.id)
+}
+
+// finishResync settles a refresh and tells every client how much was missing.
+// It only acts on a chat that asked: an answer arriving for anything else is
+// the paging request's, and finishOlder has to have it.
+func (d *Daemon) finishResync(chat string, count, total int, timedOut bool) bool {
+	d.olderMu.Lock()
+	t, pending := d.resyncPending[chat]
+	if pending {
+		t.Stop()
+		delete(d.resyncPending, chat)
+	}
+	d.olderMu.Unlock()
+	if !pending {
+		return false
+	}
+	if timedOut {
+		log.Printf("refresh %s: the phone did not answer", chat)
+	} else {
+		log.Printf("refresh %s: the phone sent %d messages, %d of them new", chat, total, count)
+	}
+	d.srv.broadcast(map[string]any{"type": "resynced", "chat": chat, "count": count, "timeout": timedOut})
+	return true
+}
+
+// refreshChatName re-reads what a chat is called, which is the one part of a
+// chat's own description that can be out of date here.
+func (d *Daemon) refreshChatName(cli *whatsmeow.Client, chat string) {
+	jid, err := types.ParseJID(chat)
+	if err != nil {
+		return
+	}
+	if jid.Server == types.GroupServer {
+		ctx, cancel := context.WithTimeout(d.ctx, 15*time.Second)
+		defer cancel()
+		if info, err := cli.GetGroupInfo(ctx, jid); err == nil {
+			setChatName(d.ctx, d.db, chat, info.Name)
+		}
+		return
+	}
+	setChatName(d.ctx, d.db, chat, d.contactName(cli, jid))
 }
 
 // finishOlder settles a request and tells every client. It reports whether a

@@ -200,6 +200,10 @@ func (d *Daemon) dispatch(c *conn, r Request) {
 		if r.Chat != "" {
 			go d.setChatUnread(r.Chat, r.On)
 		}
+	case "resync":
+		if r.Chat != "" {
+			go d.resyncChat(r.Chat)
+		}
 	case "send":
 		ok := d.run(func() {
 			m, err := d.sendText(r.Chat, r.Text, r.Quote, r.Req)

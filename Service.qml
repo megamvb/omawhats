@@ -41,6 +41,7 @@ Item {
   // info: {more, asked, end, offline} — see the "history" reply in server.go.
   signal historyReceived(string chat, var messages, double before, var info)
   signal olderReceived(string chat, int count, bool end, bool timedOut)
+  signal resynced(string chat, int count, bool timedOut, bool offline)
   signal checkResult(string req, bool ok, string jid, string name, string error)
   signal logoutFinished(bool ok, string error)
   signal messageReceived(string chat, var message, bool update, string req)
@@ -107,6 +108,9 @@ Item {
       break
     case "older":
       root.olderReceived(String(obj.chat || ""), Number(obj.count) || 0, obj.end === true, obj.timeout === true)
+      break
+    case "resynced":
+      root.resynced(String(obj.chat || ""), Number(obj.count) || 0, obj.timeout === true, obj.offline === true)
       break
     case "check":
       root.checkResult(String(obj.req || ""), obj.ok === true, String(obj.jid || ""), String(obj.name || ""), String(obj.error || ""))
@@ -270,6 +274,13 @@ Item {
   function markUnread(chat, on) {
     if (!live || !chat) return false
     return write({ cmd: "unread", chat: chat, on: on !== false })
+  }
+
+  // The refresh button: the daemon asks the phone for whatever this computer
+  // missed in one chat. The answer comes back as a "resynced" line.
+  function resyncChat(chat) {
+    if (!live || !chat) return false
+    return write({ cmd: "resync", chat: chat })
   }
 
   // Messages older than the cursor (the oldest the client holds); no cursor

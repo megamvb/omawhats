@@ -34,7 +34,8 @@ func testDaemon(t *testing.T) *Daemon {
 	t.Cleanup(cancel)
 	return &Daemon{ctx: ctx, cancel: cancel, db: db, chatsDirty: make(chan struct{}, 1),
 		work:         make(chan struct{}, 32),
-		olderPending: map[string]*time.Timer{}, olderDone: map[string]bool{}}
+		olderPending: map[string]*time.Timer{}, olderDone: map[string]bool{},
+		resyncPending: map[string]*time.Timer{}}
 }
 
 func storeMsg(t *testing.T, d *Daemon, id string, fromMe bool, text string) {
